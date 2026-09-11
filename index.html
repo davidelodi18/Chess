@@ -42,7 +42,7 @@ button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
 
 /* ---------- impalcatura ---------- */
 .guscio{max-width:1180px;margin:0 auto;padding:0 20px 80px}
-.testata{padding:34px 0 18px;border-bottom:1px solid var(--linea)}
+.testata{padding:calc(30px + env(safe-area-inset-top,0px)) 0 20px}
 .marchio{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
 .marchio h1{
   font-family:var(--display);
@@ -53,7 +53,13 @@ button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
   line-height:1;
 }
 .marchio p{margin:0;color:var(--smorzato);font-size:15px;max-width:46ch}
-.navigazione{display:flex;gap:6px;margin-top:22px;flex-wrap:wrap}
+.navigazione{
+  display:flex;gap:6px;flex-wrap:wrap;
+  position:sticky;top:0;z-index:30;
+  background:var(--ebano);
+  padding:12px 0;
+  border-bottom:1px solid var(--linea);
+}
 .navigazione button{
   background:none;border:1px solid transparent;border-radius:999px;
   padding:7px 17px;color:var(--smorzato);letter-spacing:.01em;
@@ -69,6 +75,13 @@ button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
 .colonna-stretta{display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:34px;align-items:start}
 @media(max-width:880px){
   .tavola,.colonna-stretta{grid-template-columns:minmax(0,1fr);gap:26px}
+  .guscio{padding:0 13px 60px}
+  /* la scacchiera per prima: l'elenco delle partite occuperebbe tutto lo schermo */
+  .colonna-stretta > .centro{order:1}
+  .colonna-stretta > .lato{order:2}
+  .lato .elenco{max-height:none}
+  .testata{padding-bottom:14px}
+  .marchio h1{font-size:30px}
 }
 
 /* ---------- scacchiera ---------- */
@@ -2941,7 +2954,9 @@ function Scacchiera({
 }) {
   const griglia = posizione.board();
   const scacco = casaDelRe(posizione);
-  const righe = orientamento === 'b' ? [0, 1, 2, 3, 4, 5, 6, 7] : [7, 6, 5, 4, 3, 2, 1, 0];
+  // board() restituisce la riga 0 = traversa 8. Con il bianco in basso la
+  // traversa 8 va disegnata per prima, cioè in alto.
+  const righe = orientamento === 'b' ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
   const colonne = orientamento === 'b' ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
   const case_ = [];
   for (const r of righe) {
@@ -2990,11 +3005,17 @@ function ListaMosse({
   divergenza
 }) {
   const contenitore = useRef(null);
+  // Sposto solo lo scorrimento interno dell'elenco: scrollIntoView trascinerebbe
+  // giù tutta la pagina, e sul telefono la scacchiera sparirebbe dallo schermo
+  // a ogni mossa.
   useEffect(() => {
-    const n = contenitore.current && contenitore.current.querySelector('[aria-current="true"]');
-    if (n && n.scrollIntoView) n.scrollIntoView({
-      block: 'nearest'
-    });
+    const box = contenitore.current;
+    if (!box) return;
+    const n = box.querySelector('[aria-current="true"]');
+    if (!n || !n.getBoundingClientRect) return;
+    const rBox = box.getBoundingClientRect();
+    const rEl = n.getBoundingClientRect();
+    if (rEl.top < rBox.top) box.scrollTop -= rBox.top - rEl.top;else if (rEl.bottom > rBox.bottom) box.scrollTop += rEl.bottom - rBox.bottom;
   }, [ply]);
   const righe = [];
   for (let i = 0; i < mosse.length; i += 2) {
@@ -3398,7 +3419,9 @@ function SezionePartite({
     className: "sezione"
   }, /*#__PURE__*/React.createElement("div", {
     className: "colonna-stretta"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lato"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "famiglia"
   }, "Undici partite"), /*#__PURE__*/React.createElement("div", {
     className: "elenco"
@@ -3415,7 +3438,9 @@ function SezionePartite({
     className: "vt"
   }, p.titolo), /*#__PURE__*/React.createElement("span", {
     className: "vs"
-  }, p.bianco.split(' ').slice(-1)[0], " – ", p.nero.split(' ').slice(-1)[0], ", ", p.anno))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, p.bianco.split(' ').slice(-1)[0], " – ", p.nero.split(' ').slice(-1)[0], ", ", p.anno))))), /*#__PURE__*/React.createElement("div", {
+    className: "centro"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "intestazione"
   }, /*#__PURE__*/React.createElement("h2", null, partita.titolo), /*#__PURE__*/React.createElement("p", {
     className: "giocatori"
@@ -3609,7 +3634,9 @@ function SezioneAperture() {
     className: "sezione"
   }, /*#__PURE__*/React.createElement("div", {
     className: "colonna-stretta"
-  }, /*#__PURE__*/React.createElement("div", null, famiglie.map(f => /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lato"
+  }, famiglie.map(f => /*#__PURE__*/React.createElement("div", {
     key: f.nome
   }, /*#__PURE__*/React.createElement("div", {
     className: "famiglia"
@@ -3625,7 +3652,9 @@ function SezioneAperture() {
     className: "vt"
   }, a.nome), /*#__PURE__*/React.createElement("span", {
     className: "vs"
-  }, a.eco))))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, a.eco))))))), /*#__PURE__*/React.createElement("div", {
+    className: "centro"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "intestazione"
   }, /*#__PURE__*/React.createElement("h2", null, apertura.nome), /*#__PURE__*/React.createElement("p", {
     className: "giocatori"
@@ -3701,14 +3730,14 @@ function App() {
     className: "testata"
   }, /*#__PURE__*/React.createElement("div", {
     className: "marchio"
-  }, /*#__PURE__*/React.createElement("h1", null, "Sessantaquattro"), /*#__PURE__*/React.createElement("p", null, "Le partite che hanno fatto la storia, una scacchiera per provarci sopra le tue mosse e una libreria di aperture.")), /*#__PURE__*/React.createElement("nav", {
+  }, /*#__PURE__*/React.createElement("h1", null, "Sessantaquattro"), /*#__PURE__*/React.createElement("p", null, "Le partite che hanno fatto la storia, una scacchiera per provarci sopra le tue mosse e una libreria di aperture."))), /*#__PURE__*/React.createElement("nav", {
     className: "navigazione"
   }, schede.map(s => /*#__PURE__*/React.createElement("button", {
     key: s.id,
     type: "button",
     "aria-current": sezione === s.id,
     onClick: () => setSezione(s.id)
-  }, s.nome)))), sezione === 'partite' && /*#__PURE__*/React.createElement(SezionePartite, {
+  }, s.nome))), sezione === 'partite' && /*#__PURE__*/React.createElement(SezionePartite, {
     primoAvvio: primo.current,
     consumaPrimoAvvio: () => {
       primo.current = false;
