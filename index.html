@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sessantaquattro — partite, analisi e aperture</title>
+<meta name="description" content="Le partite più famose della storia degli scacchi, una scacchiera per provare le mosse con un motore di analisi e una libreria di aperture.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..700&family=Karla:ital,wght@0,300..700;1,300..600&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+Symbols+2&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ebano:#17120E;
+  --tavolo:#211A14;
+  --tavolo-alto:#2B231B;
+  --linea:#3B2E23;
+  --avorio:#F1E7D3;
+  --smorzato:#A2917A;
+  --ottone:#C79333;
+  --ottone-scuro:#8A6520;
+  --bosso:#E3D2AE;
+  --palissandro:#8A6340;
+  --verde:#7A9459;
+  --rosso:#B0543F;
+  --display:"Bodoni Moda",Georgia,serif;
+  --testo:"Karla",system-ui,-apple-system,sans-serif;
+  --nota:"IBM Plex Mono",ui-monospace,monospace;
+  --simboli:"Noto Sans Symbols 2","Segoe UI Symbol","Apple Symbols","DejaVu Sans",serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ebano);
+  color:var(--avorio);
+  font-family:var(--testo);
+  font-size:16px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--ottone);outline-offset:2px;border-radius:2px}
+
+/* ---------- impalcatura ---------- */
+.guscio{max-width:1180px;margin:0 auto;padding:0 20px 80px}
+.testata{padding:34px 0 18px;border-bottom:1px solid var(--linea)}
+.marchio{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.marchio h1{
+  font-family:var(--display);
+  font-weight:500;
+  font-size:clamp(30px,5.4vw,46px);
+  letter-spacing:-.012em;
+  margin:0;
+  line-height:1;
+}
+.marchio p{margin:0;color:var(--smorzato);font-size:15px;max-width:46ch}
+.navigazione{display:flex;gap:6px;margin-top:22px;flex-wrap:wrap}
+.navigazione button{
+  background:none;border:1px solid transparent;border-radius:999px;
+  padding:7px 17px;color:var(--smorzato);letter-spacing:.01em;
+}
+.navigazione button:hover{color:var(--avorio)}
+.navigazione button[aria-current="true"]{
+  color:var(--ebano);background:var(--ottone);border-color:var(--ottone);font-weight:600;
+}
+.sezione{padding-top:30px}
+
+/* ---------- griglia principale ---------- */
+.tavola{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(300px,.95fr);gap:34px;align-items:start}
+.colonna-stretta{display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:34px;align-items:start}
+@media(max-width:880px){
+  .tavola,.colonna-stretta{grid-template-columns:minmax(0,1fr);gap:26px}
+}
+
+/* ---------- scacchiera ---------- */
+.scacchiera-guscio{max-width:560px}
+.scacchiera{
+  display:grid;grid-template-columns:repeat(8,1fr);
+  aspect-ratio:1/1;width:100%;
+  border:1px solid #0D0906;
+  box-shadow:0 18px 44px rgba(0,0,0,.45);
+  user-select:none;touch-action:manipulation;
+}
+.casa{position:relative;display:flex;align-items:center;justify-content:center;border:0;padding:0;background:var(--bosso)}
+.casa.scura{background:var(--palissandro)}
+.casa.cliccabile{cursor:pointer}
+.casa.ultima::after{content:"";position:absolute;inset:0;background:rgba(199,147,51,.34)}
+.casa.selezionata::after{content:"";position:absolute;inset:0;background:rgba(199,147,51,.52)}
+.casa.scacco::after{content:"";position:absolute;inset:0;background:radial-gradient(circle,rgba(176,84,63,.9),rgba(176,84,63,0) 72%)}
+.pezzo{
+  position:relative;z-index:2;
+  font-family:var(--simboli);
+  font-size:clamp(26px,7.4vw,54px);
+  line-height:1;
+  pointer-events:none;
+}
+.scacchiera-guscio .pezzo{font-size:min(8.6vw,50px)}
+.pezzo.b{color:#FBF6EA;-webkit-text-stroke:1.2px #241C15;text-shadow:0 1px 1px rgba(0,0,0,.35)}
+.pezzo.n{color:#231B14;-webkit-text-stroke:1.2px #0B0705}
+.bersaglio{position:absolute;z-index:3;width:26%;height:26%;border-radius:50%;background:rgba(23,18,14,.34)}
+.bersaglio.presa{width:86%;height:86%;border-radius:50%;background:none;box-shadow:inset 0 0 0 4px rgba(23,18,14,.34)}
+.coordinata{position:absolute;font-family:var(--nota);font-size:9px;opacity:.62;z-index:4}
+.coordinata.col{right:3px;bottom:1px}
+.coordinata.rig{left:3px;top:1px}
+.casa .coordinata{color:#2A2119}
+.casa.scura .coordinata{color:#EBDCBC}
+
+/* ---------- controlli ---------- */
+.controlli{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;align-items:center}
+.tasto{
+  background:var(--tavolo-alto);border:1px solid var(--linea);border-radius:4px;
+  padding:7px 13px;color:var(--avorio);font-size:14px;
+}
+.tasto:hover:not(:disabled){border-color:var(--ottone);color:var(--ottone)}
+.tasto:disabled{opacity:.36;cursor:not-allowed}
+.tasto.pieno{background:var(--ottone);border-color:var(--ottone);color:#1A1309;font-weight:600}
+.tasto.pieno:hover{background:#D6A343;border-color:#D6A343;color:#1A1309}
+.tasto.nav{font-family:var(--nota);min-width:44px;text-align:center}
+.riga-tasti{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+
+/* ---------- pannelli ---------- */
+.pannello{background:var(--tavolo);border:1px solid var(--linea);border-radius:6px;padding:20px}
+.pannello + .pannello{margin-top:18px}
+.pannello h3{
+  font-family:var(--display);font-weight:600;font-size:19px;margin:0 0 10px;letter-spacing:-.01em;
+}
+.pannello p{margin:0 0 10px;font-size:15px;color:#DCD0BB}
+.pannello p:last-child{margin-bottom:0}
+
+/* ---------- elenco partite ---------- */
+.elenco{display:flex;flex-direction:column;gap:2px;max-height:none}
+.voce{
+  display:block;width:100%;text-align:left;background:none;border:0;
+  border-left:2px solid var(--linea);padding:11px 14px;color:var(--smorzato);
+}
+.voce:hover{border-left-color:var(--ottone-scuro);color:var(--avorio);background:rgba(255,255,255,.02)}
+.voce[aria-current="true"]{border-left-color:var(--ottone);background:var(--tavolo);color:var(--avorio)}
+.voce .vt{font-family:var(--display);font-size:17px;font-weight:600;display:block;line-height:1.25}
+.voce .vs{font-size:13px;color:var(--smorzato);display:block;margin-top:2px}
+
+/* ---------- intestazione partita ---------- */
+.intestazione{margin-bottom:18px}
+.intestazione h2{
+  font-family:var(--display);font-weight:500;font-size:clamp(26px,4.2vw,38px);
+  margin:0 0 6px;line-height:1.08;letter-spacing:-.015em;
+}
+.giocatori{font-family:var(--nota);font-size:13.5px;color:var(--smorzato);margin:0}
+.giocatori b{color:var(--avorio);font-weight:500}
+.occhiello{font-family:var(--display);font-style:italic;font-size:18px;color:var(--ottone);margin:10px 0 0;max-width:56ch}
+
+/* ---------- lista mosse ---------- */
+.mosse{font-family:var(--nota);font-size:14px;max-height:320px;overflow-y:auto;padding-right:4px}
+.mossa-riga{display:grid;grid-template-columns:34px 1fr 1fr;gap:2px;align-items:center}
+.mossa-riga .num{color:var(--smorzato);font-size:12.5px;text-align:right;padding-right:8px}
+.mosse button{
+  background:none;border:0;text-align:left;padding:3px 7px;border-radius:3px;color:#DCD0BB;
+  font-family:var(--nota);font-size:14px;width:100%;
+}
+.mosse button:hover{background:rgba(255,255,255,.05);color:var(--avorio)}
+.mosse button[aria-current="true"]{background:var(--ottone);color:#1A1309;font-weight:600}
+.mosse button.var{color:var(--ottone)}
+.mosse button.var[aria-current="true"]{background:var(--ottone);color:#1A1309}
+
+/* ---------- nota alla mossa ---------- */
+.nota{
+  border-left:2px solid var(--ottone);padding:2px 0 2px 15px;margin-top:16px;
+  font-size:15.5px;color:#E6DAC4;min-height:1.5em;
+}
+.nota .etichetta{font-family:var(--nota);font-size:12px;color:var(--ottone);display:block;margin-bottom:3px}
+
+/* ---------- motore ---------- */
+.barra{height:9px;background:#2A211A;border:1px solid var(--linea);border-radius:2px;overflow:hidden;display:flex}
+.barra i{display:block;background:var(--bosso);height:100%;transition:width .35s ease}
+.valutazione{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
+.valutazione .cifra{font-family:var(--nota);font-size:26px;font-weight:600;letter-spacing:-.02em}
+.valutazione .cifra.n{color:var(--smorzato)}
+.dettaglio{font-family:var(--nota);font-size:12.5px;color:var(--smorzato);margin-top:9px;line-height:1.55;word-break:break-word}
+.dettaglio b{color:var(--avorio);font-weight:500}
+.migliore{font-family:var(--nota);font-size:18px;color:var(--ottone);font-weight:600}
+.campo{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:14px;color:var(--smorzato);flex-wrap:wrap}
+.campo input[type=range]{flex:1;min-width:110px;accent-color:var(--ottone)}
+.campo select{
+  background:var(--tavolo-alto);color:var(--avorio);border:1px solid var(--linea);
+  border-radius:4px;padding:5px 8px;font-family:inherit;font-size:14px;
+}
+.spia{
+  display:inline-flex;align-items:center;gap:6px;font-family:var(--nota);font-size:11.5px;
+  color:var(--smorzato);margin-top:14px;
+}
+.spia i{width:6px;height:6px;border-radius:50%;background:var(--verde);display:block}
+.spia i.attesa{background:var(--ottone)}
+.spia i.locale{background:var(--palissandro)}
+
+/* ---------- avvisi ---------- */
+.avviso{
+  border:1px solid var(--ottone-scuro);background:rgba(199,147,51,.09);
+  border-radius:5px;padding:11px 15px;font-size:14.5px;margin-top:14px;color:#E9DCC2;
+}
+.avviso b{color:var(--ottone)}
+.esito{font-family:var(--nota);font-size:13px;color:var(--ottone);margin-top:10px}
+
+/* ---------- aperture ---------- */
+.griglia-aperture{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:2px}
+.famiglia{font-family:var(--nota);font-size:12px;color:var(--ottone);margin:22px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--linea)}
+.famiglia:first-child{margin-top:0}
+.eco{font-family:var(--nota);font-size:12px;color:var(--smorzato)}
+.linea-principale{font-family:var(--nota);font-size:14px;color:#DCD0BB;line-height:2}
+.linea-principale button{
+  background:none;border:0;color:inherit;font-family:var(--nota);font-size:14px;
+  padding:2px 5px;border-radius:3px;
+}
+.linea-principale button:hover{background:rgba(255,255,255,.05)}
+.linea-principale button[aria-current="true"]{background:var(--ottone);color:#1A1309;font-weight:600}
+.linea-principale .num{color:var(--smorzato);margin-left:5px}
+dl.piani{margin:0}
+dl.piani dt{font-family:var(--nota);font-size:12px;color:var(--ottone);margin-top:13px}
+dl.piani dd{margin:3px 0 0;font-size:15px;color:#DCD0BB}
+
+/* ---------- promozione ---------- */
+.velo{position:fixed;inset:0;background:rgba(10,7,5,.78);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.dialogo{background:var(--tavolo);border:1px solid var(--linea);border-radius:6px;padding:24px;max-width:340px;text-align:center}
+.dialogo h3{font-family:var(--display);margin:0 0 14px;font-size:20px}
+.scelte{display:flex;gap:8px;justify-content:center}
+.scelte button{
+  width:60px;height:60px;background:var(--bosso);border:1px solid var(--linea);border-radius:4px;
+  display:flex;align-items:center;justify-content:center;
+}
+.scelte button:hover{border-color:var(--ottone)}
+.scelte .pezzo{font-size:38px}
+
+.piede{margin-top:60px;padding-top:22px;border-top:1px solid var(--linea);color:var(--smorzato);font-size:13.5px;max-width:70ch}
+.piede a{color:var(--ottone)}
+
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Versioni fissate apposta: un aggiornamento automatico di Babel cambierebbe il
+     modo in cui viene compilato il JSX e il sito smetterebbe di funzionare.
+     Ogni libreria ha un secondo CDN di riserva. -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script>if (typeof React === 'undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"><\/script>');</script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script>if (typeof ReactDOM === 'undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"><\/script>');</script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+<script>if (typeof Babel === 'undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.4/babel.min.js"><\/script>');</script>
+<script src="https://cdn.jsdelivr.net/npm/chess.js@0.13.4/chess.js"></script>
+<script>if (typeof Chess === 'undefined') document.write('<script src="https://unpkg.com/chess.js@0.13.4/chess.js"><\/script>');</script>
+<script>window.DATI = {"partite":[{"id":"immortale","titolo":"L'Immortale","bianco":"Adolf Anderssen","nero":"Lionel Kieseritzky","luogo":"Londra","anno":1851,"risultato":"1-0","apertura":"Gambetto di Re, difesa Bishop's","occhiello":"Torre, torre, alfiere e donna regalati. Matto con quel che resta.","intro":"Giocata in una pausa del primo torneo internazionale della storia, senza alcun valore di classifica. Anderssen dà via entrambe le torri, un alfiere e la donna, e dà matto con i tre pezzi minori che gli restano. È il manifesto del gioco romantico: il materiale non conta nulla, l'iniziativa conta tutto.","mosse":"e4 e5 f4 exf4 Bc4 Qh4+ Kf1 b5 Bxb5 Nf6 Nf3 Qh6 d3 Nh5 Nh4 Qg5 Nf5 c6 g4 Nf6 Rg1 cxb5 h4 Qg6 h5 Qg5 Qf3 Ng8 Bxf4 Qf6 Nc3 Bc5 Nd5 Qxb2 Bd6 Bxg1 e5 Qxa1+ Ke2 Na6 Nxg7+ Kd8 Qf6+ Nxf6 Be7#","note":{"3":"Il Gambetto di Re: il bianco offre un pedone per prendersi il centro e la colonna f. Nell'Ottocento rifiutarlo era quasi scortese.","6":"Scacco immediato. Il bianco perde il diritto di arroccare, ma la donna nera resterà esposta per tutta la partita e ogni sviluppo del bianco arriverà guadagnando tempo su di lei.","8":"Contro-gambetto: il nero offre un pedone per deviare l'alfiere dalla diagonale verso f7.","19":"Il cavallo h5 è attaccato e non ha case sicure. Il nero deve tornare indietro.","21":"Anderssen non difende l'alfiere in b5: sposta la torre e lascia che il nero si prenda un pezzo intero.","23":"Ora si capisce l'idea: con h4 la donna nera viene braccata in mezzo alla scacchiera.","27":"La donna bianca entra in f3 con doppia funzione: difende il cavallo e minaccia lo scacco matto su f7. Il nero deve rispondere con Ng8, cancellando ogni suo sviluppo.","29":"Recuperato il pedone, il bianco ha tutti i pezzi in gioco contro un nero che ha una sola figura sviluppata — e in ottava traversa.","33":"Il cavallo entra in d5 senza curarsi dell'alfiere in b2 né della torre in a1.","34":"Il nero prende: ora minaccia anche il matto in c3.","35":"La mossa della partita. L'alfiere si mette in presa in tre modi diversi e non può essere catturato: serve solo a togliere al nero la casa e7 e a preparare il matto.","36":"Il nero si prende la seconda torre.","38":"Materiale: il nero ha due torri, un alfiere e un pedone in più. E sta per ricevere matto.","41":"Lo scacco che chiude la rete: il re nero non può andare in f8 per via dell'alfiere in d6.","43":"L'ultimo sacrificio. La donna si offre per attirare il cavallo lontano da e7.","45":"Matto dato da alfiere e due cavalli, con la donna e le due torri bianche sparite dalla scacchiera."}},{"id":"sempreverde","titolo":"La Sempreverde","bianco":"Adolf Anderssen","nero":"Jean Dufresne","luogo":"Berlino","anno":1852,"risultato":"1-0","apertura":"Gambetto Evans","occhiello":"Il finale che Steinitz definì «una partita sempreverde nella corona di alloro di Anderssen».","intro":"L'altra grande partita di Anderssen. Qui il sacrificio non è d'assalto ma di precisione: una combinazione finale di sei mosse in cui donna, torre e due alfieri lavorano insieme contro un re che aveva ancora tutti i pezzi in gioco.","mosse":"e4 e5 Nf3 Nc6 Bc4 Bc5 b4 Bxb4 c3 Ba5 d4 exd4 O-O d3 Qb3 Qf6 e5 Qg6 Re1 Nge7 Ba3 b5 Qxb5 Rb8 Qa4 Bb6 Nbd2 Bb7 Ne4 Qf5 Bxd3 Qh5 Nf6+ gxf6 exf6 Rg8 Rad1 Qxf3 Rxe7+ Nxe7 Qxd7+ Kxd7 Bf5+ Ke8 Bd7+ Kf8 Bxe7#","note":{"7":"Il Gambetto Evans: un pedone in cambio di due tempi per costruire il centro con c3 e d4.","14":"Il nero restituisce il pedone in d3 per chiudere la diagonale dell'alfiere bianco. Prudente, ma regala tempo.","21":"L'alfiere in a3 impedisce per sempre l'arrocco nero. Il re resterà al centro fino alla fine.","29":"Il cavallo entra in f6 con scacco: non si può rifiutare.","31":"Due pedoni triplicati e il re scoperto, ma il nero ha materiale e minaccia il matto in g2. Da qui in poi ogni mossa bianca deve dare scacco.","33":"Anderssen porta anche l'ultima torre in gioco prima di calcolare il colpo.","34":"Il nero prende il cavallo minacciando matto in g2: sembra finita.","35":"Invece comincia la combinazione: scacco, e la torre non può essere ignorata.","37":"Il sacrificio di donna. Serve ad attirare il re su d7, dove finirà sotto scacco doppio.","39":"Scacco di scoperta: l'alfiere si mette in presa e apre la linea della torre in d1.","41":"L'alfiere torna indietro dando di nuovo scacco. Il re nero non ha una sola casa libera.","43":"Matto. Il nero aveva ancora donna, torre e alfiere sulla scacchiera."}},{"id":"opera","titolo":"La partita dell'Opera","bianco":"Paul Morphy","nero":"Duca di Brunswick e Conte Isouard","luogo":"Parigi, Teatro dell'Opera","anno":1858,"risultato":"1-0","apertura":"Difesa Philidor","occhiello":"Diciassette mosse giocate in un palco, durante il Barbiere di Siviglia.","intro":"Morphy assisteva al Barbiere di Siviglia come ospite del Duca di Brunswick, che insistette per giocare durante lo spettacolo. È la partita che si mostra a chi sta imparando: ogni mossa bianca sviluppa un pezzo, ogni mossa nera no, e alla fine il conto si paga tutto insieme.","mosse":"e4 e5 Nf3 d6 d4 Bg4 dxe5 Bxf3 Qxf3 dxe5 Bc4 Nf6 Qb3 Qe7 Nc3 c6 Bg5 b5 Nxb5 cxb5 Bxb5+ Nbd7 O-O-O Rd8 Rxd7 Rxd7 Rd1 Qe6 Bxd7+ Nxd7 Qb8+ Nxb8 Rd8#","note":{"4":"La Difesa Philidor. Solida ma passiva: il nero chiude la diagonale del proprio alfiere campochiaro.","6":"L'inchiodatura sembra naturale, ma il nero sta già cedendo la coppia degli alfieri e perdendo tempo.","13":"La donna in b3 attacca due volte f7 e una volta b7. Il nero deve difendersi con una mossa passiva.","16":"Costretto: c6 blocca il proprio sviluppo per tappare la diagonale.","18":"Il nero attacca l'alfiere in g5 anziché completare lo sviluppo. È l'ultima occasione che Morphy aspettava.","19":"Sacrificio di cavallo. Il bianco apre la colonna b e la diagonale verso il re nero, che è ancora al centro.","21":"Ora il nero deve interporre il cavallo in d7, dove sarà inchiodato e attaccato più volte.","23":"Arrocco lungo: la torre arriva in d1 con scacco all'inchiodatura. Il bianco ha tre pezzi puntati su un cavallo che non può muoversi.","25":"Sacrificio della prima torre, per sostituire il cavallo inchiodato con un pezzo ancora più bloccato.","27":"Entra la seconda torre. Il nero ha una donna, due torri e un alfiere che non partecipano a nulla.","31":"Sacrificio di donna, mossa finale di un attacco costruito con tre pezzi contro dodici.","33":"Matto. Morphy ha mosso un pezzo diverso quasi a ogni mossa; il nero ha mosso lo stesso pezzo più volte."}},{"id":"levitsky","titolo":"La mossa più bella mai giocata","bianco":"Stepan Levitsky","nero":"Frank Marshall","luogo":"Breslavia","anno":1912,"risultato":"0-1","apertura":"Difesa Francese, variante di scambio","occhiello":"Una donna piazzata dove tre pezzi diversi possono catturarla.","intro":"La leggenda vuole che il pubblico abbia coperto la scacchiera di monete d'oro dopo l'ultima mossa. Probabilmente non è andata così, ma la mossa resta una delle più celebri della storia: la donna nera si mette in presa su una casa difesa tre volte, e proprio per questo non può essere presa.","mosse":"d4 e6 e4 d5 Nc3 c5 Nf3 Nc6 exd5 exd5 Be2 Nf6 O-O Be7 Bg5 O-O dxc5 Be6 Nd4 Bxc5 Nxe6 fxe6 Bg4 Qd6 Bh3 Rae8 Qd2 Bb4 Bxf6 Rxf6 Rad1 Qc5 Qe2 Bxc3 bxc3 Qxc3 Rxd5 Nd4 Qh5 Ref8 Re5 Rh6 Qg5 Rxh3 Rc5 Qg3","note":{"21":"La struttura è simmetrica ma il nero ha preso l'iniziativa: colonna f aperta e pezzi attivi.","35":"Cade un pedone: il bianco recupera materiale ma apre la strada ai pezzi neri verso il proprio re.","39":"Il cavallo in d4 è il pezzo chiave: controlla f3 ed e2 e sostiene tutto l'attacco.","43":"Il nero lascia andare la torre in h3 per aprire la colonna h.","45":"Il bianco attacca la donna con la torre in c5, convinto di aver risolto i problemi.","46":"La mossa. La donna può essere catturata dal pedone h2, dal pedone f2 e dalla donna in g5: nessuna delle tre cattura funziona, perché ogni presa porta al matto o alla perdita della donna. Levitsky abbandonò."}},{"id":"steinitz","titolo":"Il re che cammina","bianco":"Wilhelm Steinitz","nero":"Curt von Bardeleben","luogo":"Hastings","anno":1895,"risultato":"1-0","apertura":"Partita Italiana, attacco Greco","occhiello":"Una torre che dà scacco per quattro mosse di fila senza mai poter essere catturata.","intro":"Steinitz è ricordato come il padre del gioco posizionale, ma questa partita mostra che sapeva calcolare quanto i romantici. Von Bardeleben non abbandonò: si alzò dal tavolo e non tornò più, perdendo per tempo scaduto. Steinitz mostrò al pubblico il matto forzato in dieci mosse che avrebbe seguito.","mosse":"e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d4 exd4 cxd4 Bb4+ Nc3 d5 exd5 Nxd5 O-O Be6 Bg5 Be7 Bxd5 Bxd5 Nxd5 Qxd5 Bxe7 Nxe7 Re1 f6 Qe2 Qd7 Rac1 c6 d5 cxd5 Nd4 Kf7 Ne6 Rhc8 Qg4 g6 Ng5+ Ke8 Rxe7+ Kf8 Rf7+ Kg8 Rg7+ Kh8 Rxh7+","note":{"13":"Il nero rompe al centro per liberarsi, ma dopo gli scambi resterà con il re bloccato al centro.","28":"f6 indebolisce la diagonale e le case chiare attorno al re. Il nero non riuscirà mai ad arroccare.","33":"Rottura centrale: il pedone d si sacrifica per aprire la colonna e la casa e6 al cavallo.","35":"Il cavallo si installa in e6, una spina che il nero non può togliere: prenderlo apre linee fatali.","41":"Comincia la sequenza. Il nero ha appena indebolito con g6 e ora il cavallo entra con scacco.","43":"Prima presa: la torre è in presa da tre pezzi diversi (re, donna e torre) e nessuno può catturarla.","45":"Secondo scacco. Se il re prende, il cavallo forchetta la donna.","47":"Terzo scacco. La torre continua a camminare lungo la settima traversa, sempre intoccabile.","49":"Qui von Bardeleben lasciò la sala. Steinitz dimostrò il matto forzato che sarebbe seguito con la serie di scacchi di donna e cavallo."}},{"id":"reti","titolo":"La combinazione di Baden-Baden","bianco":"Richard Réti","nero":"Alexander Alekhine","luogo":"Baden-Baden","anno":1925,"risultato":"0-1","apertura":"Apertura Réti","occhiello":"Una combinazione di quindici mosse con pezzi in presa a ogni passo.","intro":"Due scuole diverse a confronto: Réti, teorico dell'ipermodernismo, contro Alekhine, il calcolatore più feroce della sua epoca. La partita esplode in una combinazione che coinvolge quasi tutti i pezzi e in cui il nero lascia in presa per mosse di fila alfiere, cavallo e torre.","mosse":"g3 e5 Nf3 e4 Nd4 d5 d3 exd3 Qxd3 Nf6 Bg2 Bb4+ Bd2 Bxd2+ Nxd2 O-O c4 Na6 cxd5 Nb4 Qc4 Nbxd5 N2b3 c6 O-O Re8 Rfd1 Bg4 Rd2 Qc8 Nc5 Bh3 Bf3 Bg4 Bg2 Bh3 Bf3 Bg4 Bh1 h5 b4 a6 Rc1 h4 a4 hxg3 hxg3 Qc7 b5 axb5 axb5 Re3 Nf3 cxb5 Qxb5 Nc3 Qxb7 Qxb7 Nxb7 Nxe2+ Kh2 Ne4 Rc4 Nxf2 Bg2 Be6 Rcc2 Ng4+ Kh3 Ne5+ Kh2 Rxf3 Rxe2 Ng4+ Kh3 Ne3+ Kh2 Nxc2 Bxf3 Nd4","note":{"1":"Réti apre con una mossa di pedone laterale: il centro non si occupa, si controlla da lontano.","33":"La ripetizione di mosse non è accordo di patta: Alekhine sta guadagnando tempo sull'orologio e Réti cerca di migliorare l'alfiere.","39":"Bh1: l'alfiere si ritira nell'angolo per non perdere tempo. È una mossa famosa proprio perché sembra assurda.","55":"Comincia la combinazione. Il nero entra in terza traversa con la torre e apre tre minacce insieme.","57":"Nc3: il cavallo si mette in presa attaccando la donna, in una posizione in cui il nero ha già la torre appesa.","59":"Lo scambio di donne non salva: il nero ha calcolato tutto fino in fondo.","61":"Il cavallo prende in e2 con scacco e la sequenza non si ferma più.","71":"Il colpo che chiude: la torre prende in f3 sfruttando l'inchiodatura, e il bianco non può riprendere.","79":"Réti abbandonò qui: il nero resta con un pezzo di vantaggio in un finale chiaro."}},{"id":"botvinnik","titolo":"La preparazione contro l'intuito","bianco":"Mikhail Botvinnik","nero":"José Raúl Capablanca","luogo":"AVRO, Paesi Bassi","anno":1938,"risultato":"1-0","apertura":"Difesa Nimzo-Indiana, variante Rubinstein","occhiello":"Il sacrificio di alfiere che Botvinnik disse di aver calcolato per venti minuti.","intro":"Capablanca era il campione del gioco naturale, Botvinnik il primo professionista moderno, quello che studiava le posizioni a tavolino prima della partita. Qui il bianco costruisce con pazienza un pedone passato centrale e lo trasforma in un attacco con un sacrificio di alfiere e uno di cavallo consecutivi.","mosse":"d4 Nf6 c4 e6 Nc3 Bb4 e3 d5 a3 Bxc3+ bxc3 c5 cxd5 exd5 Bd3 O-O Ne2 b6 O-O Ba6 Bxa6 Nxa6 Bb2 Qd7 a4 Rfe8 Qd3 c4 Qc2 Nb8 Rae1 Nc6 Ng3 Na5 f3 Nb3 e4 Qxa4 e5 Nd7 Qf2 g6 f4 f5 exf6 Nxf6 f5 Rxe1 Rxe1 Re8 Re6 Rxe6 fxe6 Kg7 Qf4 Qe8 Qe5 Qe7 Ba3 Qxa3 Nh5+ gxh5 Qg5+ Kf8 Qxf6+ Kg8 e7 Qc1+ Kf2 Qc2+ Kg3 Qd3+ Kh4 Qe4+ Kxh5 Qe2+ Kh4 Qe4+ g4 Qe1+ Kh5","note":{"6":"La Nimzo-Indiana: il nero inchioda il cavallo e accetta di cedere la coppia degli alfieri per rovinare la struttura bianca.","10":"I pedoni doppiati in c sono il prezzo che il bianco paga; in cambio ottiene due alfieri e il centro.","27":"c4 chiude la posizione sul lato di donna. Capablanca conta di bloccare tutto, ma così libera il bianco di giocare solo sul lato di re.","37":"Il nero ha portato il cavallo fino a b3 e sta per prendere un pedone: sulla carta il nero sta bene, ma ha quattro pezzi lontanissimi dal proprio re.","39":"e4-e5: il centro si mette in moto e il cavallo nero deve tornare in difesa.","49":"f5: il pedone passato comincia la corsa e apre linee verso g7.","57":"Ba3! L'alfiere si offre per deviare la donna nera ancora più lontano. Botvinnik raccontò di aver calcolato tutto da qui.","59":"Nh5+! Secondo sacrificio: apre la colonna g e la diagonale verso il re.","63":"Il pedone arriva in e7 e promuove: il nero può solo dare scacchi.","81":"Il re bianco fa una passeggiata fino a h5 sotto scacco perpetuo apparente. Capablanca abbandonò: gli scacchi finiscono e il pedone promuove."}},{"id":"fischer56","titolo":"La partita del secolo","bianco":"Donald Byrne","nero":"Bobby Fischer","luogo":"New York","anno":1956,"risultato":"0-1","apertura":"Difesa Grünfeld","occhiello":"Un tredicenne sacrifica la donna al diciassettesimo tratto e vince.","intro":"Fischer aveva tredici anni e giocava contro uno dei più forti giocatori americani. Al diciassettesimo tratto lascia la donna in presa per una serie di scacchi che porta a un mulinello di cavallo e alla conquista di materiale decisivo. Il finale è un matto costruito con torre, alfieri e cavallo contro un re che scappa lungo tutta la scacchiera.","mosse":"Nf3 Nf6 c4 g6 Nc3 Bg7 d4 O-O Bf4 d5 Qb3 dxc4 Qxc4 c6 e4 Nbd7 Rd1 Nb6 Qc5 Bg4 Bg5 Na4 Qa3 Nxc3 bxc3 Nxe4 Bxe7 Qb6 Bc4 Nxc3 Bc5 Rfe8+ Kf1 Be6 Bxb6 Bxc4+ Kg1 Ne2+ Kf1 Nxd4+ Kg1 Ne2+ Kf1 Nc3+ Kg1 axb6 Qb4 Ra4 Qxb6 Nxd1 h3 Rxa2 Kh2 Nxf2 Re1 Rxe1 Qd8+ Bf8 Nxe1 Bd5 Nf3 Ne4 Qb8 b5 h4 h5 Ne5 Kg7 Kg1 Bc5+ Kf1 Ng3+ Ke1 Bb4+ Kd1 Bb3+ Kc1 Ne2+ Kb1 Nc3+ Kc1 Rc2#","note":{"11":"Byrne non ha ancora arroccato. È il dettaglio su cui Fischer costruirà tutto.","21":"Bg5 attacca il cavallo f6, ma il re bianco resta al centro e la donna in c5 è lontana dal proprio campo.","22":"Na4!! Il cavallo si mette in presa due volte per staccare la difesa della casa e4. Se il bianco prende, perde la donna dopo Nxc3.","26":"Nxe4: il nero continua a lasciare pezzi in presa. Ora è la donna bianca a essere in pericolo.","28":"Qb6: il nero difende tutto e attacca. Byrne prende l'alfiere e crede di aver vinto la donna.","34":"Be6!! Il sacrificio di donna. Fischer la lascia prendere per ottenere due alfieri e un cavallo che coordinano un attacco al re bianco scoperto.","37":"Ne2+, Nxd4+, Ne2+: il mulinello. A ogni giro il nero incassa materiale con scacco.","45":"Il conto: il nero ha torre, due alfieri e un cavallo contro la donna, con il re bianco esposto. Vantaggio decisivo.","55":"Rxa2 e poi Nxf2: i pedoni bianchi cadono uno dopo l'altro.","81":"Il re bianco è stato spinto fino a b1 e torna in c1.","82":"Matto di torre sostenuto dal cavallo in c3."}},{"id":"fischer72","titolo":"L'applauso di Spassky","bianco":"Bobby Fischer","nero":"Boris Spassky","luogo":"Reykjavík, match per il titolo mondiale, partita 6","anno":1972,"risultato":"1-0","apertura":"Gambetto di Donna, variante Tartakower","occhiello":"Spassky si unì al pubblico che applaudiva l'avversario.","intro":"Nel momento più teso della Guerra Fredda scacchistica, Fischer apre per la prima volta in carriera con 1.c4 e gioca una partita di tecnica pura: nessun sacrificio spettacolare, solo pressione crescente su una debolezza permanente. Alla fine Spassky si alzò e applaudì insieme al pubblico.","mosse":"c4 e6 Nf3 d5 d4 Nf6 Nc3 Be7 Bg5 O-O e3 h6 Bh4 b6 cxd5 Nxd5 Bxe7 Qxe7 Nxd5 exd5 Rc1 Be6 Qa4 c5 Qa3 Rc8 Bb5 a6 dxc5 bxc5 O-O Ra7 Be2 Nd7 Nd4 Qf8 Nxe6 fxe6 e4 d4 f4 Qe7 e5 Rb8 Bc4 Kh8 Qh3 Nf8 b3 a5 f5 exf5 Rxf5 Nh7 Rcf1 Qd8 Qg3 Re7 h4 Rbb7 e6 Rbc7 Qe5 Qe8 a4 Qd8 R1f2 Qe8 R2f3 Qd8 Bd3 Qe8 Qe4 Nf6 Rxf6 gxf6 Rxf6 Kg8 Bc4 Kh8 Qf4","note":{"1":"Prima volta in tutta la carriera agonistica di Fischer con 1.c4. Una sorpresa preparata apposta per il match.","14":"La variante Tartakower: il nero sviluppa l'alfiere in fianchetto per risolvere il problema del pezzo cattivo.","26":"Rc8 prepara c5, la rottura tipica di questa struttura.","27":"Bb5: Fischer costringe il nero a indebolirsi con a6 prima di scambiare in c5.","35":"Nd4-e6: lo scambio che lascia al nero un pedone isolato in e6 e uno debole in c5. Da qui è tecnica.","39":"e4! Il centro si muove e il pedone nero d4 diventa un bersaglio fisso.","51":"f5: il pedone e6 cade o si blocca. Il nero deve accettare una struttura senza speranze.","61":"e6! Il pedone passato entra in gioco e i pezzi neri diventano tutti difensori passivi.","67":"Fischer manovra con le torri senza fretta: sposta, ripete, migliora. Il nero non ha alcun piano attivo.","75":"Rxf6! La combinazione finale arriva solo quando ogni pezzo bianco è al posto giusto.","81":"Spassky abbandonò e applaudì."}},{"id":"deepblue","titolo":"Deep Blue chiude il match","bianco":"Deep Blue","nero":"Garry Kasparov","luogo":"New York, partita 6","anno":1997,"risultato":"1-0","apertura":"Caro-Kann, variante Steinitz","occhiello":"Diciannove mosse: il giorno in cui il campione del mondo perde un match contro una macchina.","intro":"L'ultima partita del match: Kasparov, teso dopo la controversa seconda partita, entra in una linea del Caro-Kann di cui è nota da decenni la confutazione con il sacrificio di cavallo in e6. La macchina lo gioca subito e la partita finisce in diciannove mosse. È la prima volta che un campione del mondo in carica perde un match a cadenza classica contro un computer.","mosse":"e4 c6 d4 d5 Nc3 dxe4 Nxe4 Nd7 Ng5 Ngf6 Bd3 e6 N1f3 h6 Nxe6 Qe7 O-O fxe6 Bg6+ Kd8 Bf4 b5 a4 Bb7 Re1 Nd5 Bg3 Kc8 axb5 cxb5 Qd3 Bc6 Bf5 exf5 Rxe7 Bxe7 c4","note":{"8":"Nd7: la variante Steinitz del Caro-Kann. Solida, ma con una casa e6 delicata.","14":"h6?: la mossa critica. Chiedere al cavallo di ritirarsi qui è noto da tempo come un errore.","15":"Nxe6! Il sacrificio classico, presente in tutti i manuali. Il re nero perde l'arrocco e il centro si apre.","17":"Deep Blue arrocca prima di incassare: il nero deve prendere e restare con il re in d8.","19":"Scacco di alfiere: il re nero è costretto in d8, tagliato fuori dalle proprie torri.","27":"Il nero cerca attività con Nd5, ma la posizione è già tecnicamente persa.","35":"Bf5! Deviazione: ogni cattura porta alla perdita della donna.","37":"Kasparov abbandonò dopo 19.c4. Il punteggio finale del match fu 3½–2½ per Deep Blue."}},{"id":"kasparov99","titolo":"L'Immortale di Kasparov","bianco":"Garry Kasparov","nero":"Veselin Topalov","luogo":"Wijk aan Zee","anno":1999,"risultato":"1-0","apertura":"Difesa Pirc","occhiello":"Il re nero viene inseguito da a7 fino a c3 e non sopravvive.","intro":"Considerata la più bella partita degli scacchi moderni. Kasparov sacrifica una torre alla ventiquattresima mossa per aprire una caccia al re che attraversa tutta la scacchiera: il re nero parte da b8 e viene spinto fino a c3, in mezzo ai pezzi bianchi. Le analisi successive hanno mostrato che una difesa esatta esisteva, ma non era trovabile sull'orologio.","mosse":"e4 d6 d4 Nf6 Nc3 g6 Be3 Bg7 Qd2 c6 f3 b5 Nge2 Nbd7 Bh6 Bxh6 Qxh6 Bb7 a3 e5 O-O-O Qe7 Kb1 a6 Nc1 O-O-O Nb3 exd4 Rxd4 c5 Rd1 Nb6 g3 Kb8 Na5 Ba8 Bh3 d5 Qf4+ Ka7 Rhe1 d4 Nd5 Nbxd5 exd5 Qd6 Rxd4 cxd4 Re7+ Kb6 Qxd4+ Kxa5 b4+ Ka4 Qc3 Qxd5 Ra7 Bb7 Rxb7 Qc4 Qxf6 Kxa3 Qxa6+ Kxb4 c3+ Kxc3 Qa1+ Kd2 Qb2+ Kd1 Bf1 Rd2 Rd7 Rxd7 Bxc4 bxc4 Qxh8 Rd3 Qa8 c3 Qa4+ Ke1 f4 f5 Kc1 Rd2 Qa7","note":{"7":"L'attacco austriaco contro la Pirc: il bianco costruisce con Be3, Qd2 e f3 e punta all'arrocco lungo.","15":"Bh6: scambio degli alfieri neri, il difensore principale del re nero in fianchetto.","25":"Entrambi i re sono arroccati sullo stesso lato, ma le strutture sono diverse: il bianco ha più spazio e linee aperte.","41":"d5: Topalov rompe al centro per cercare contrarietà.","43":"Scacco di donna. Il re nero deve salire in a7, dove sarà raggiungibile.","47":"Nd5! Il cavallo entra in mezzo a tutto.","49":"Rxd4!! Il sacrificio di torre. Kasparov disse di non aver calcolato tutto: aveva valutato che l'attacco doveva esistere.","51":"Re7+ costringe il re a scendere in b6.","53":"Qxd4+ e il re nero deve prendere il cavallo in a5, entrando definitivamente in campo aperto.","55":"b4+! Il pedone spinge il re verso a4, dove sarà circondato.","57":"Qc3: il bianco non dà scacco, minaccia il matto e invita il nero a difendersi. È la mossa più famosa della partita.","63":"Il re nero è arrivato in a3 e continua a mangiare pedoni: ogni presa lo porta più vicino ai pezzi bianchi.","69":"Il re arriva in c3, in mezzo alla scacchiera, e la caccia si chiude con una serie di scacchi.","87":"Topalov abbandonò. Il bianco ha donna e pedone contro torre in una posizione vinta."}}],"aperture":[{"id":"italiana","nome":"Partita Italiana","eco":"C50","famiglia":"Aperture di re","mosse":"e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d3 d6 Nbd2 O-O Bb3 a6 O-O","idea":"L'alfiere in c4 punta subito sulla casa f7, il punto più debole della posizione nera. Nella versione moderna, il cosiddetto Giuoco Pianissimo, il bianco rinuncia all'assalto immediato e costruisce lentamente con c3 e d3, preparando d4 solo quando tutti i pezzi sono pronti.","bianco":"Ritirare l'alfiere in b3 o c2, giocare Nbd2-f1-g3 per portare il cavallo sul lato di re, poi aprire il centro con d4 al momento giusto.","nero":"Rispecchiare il piano bianco: a6, Ba7, Re8, h6. Chi rompe al centro per primo senza preparazione di solito sta peggio.","insidia":{"nome":"Il Fegatello","mosse":"e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5 d5 exd5 Nxd5 Nxf7 Kxf7 Qf3+ Ke6 Nc3","testo":"Se il nero riprende in d5 con il cavallo, il bianco sacrifica il cavallo su f7 e trascina il re nero in mezzo alla scacchiera. Il nero resta un pezzo sopra ma con il re in e6 sotto attacco permanente. Si evita con 5...Na5, che attacca l'alfiere e scarta l'intera linea."}},{"id":"spagnola","nome":"Difesa Spagnola","eco":"C84","famiglia":"Aperture di re","mosse":"e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7 Re1 b5 Bb3 d6 c3 O-O h3 Na5 Bc2 c5 d4","idea":"Con Bb5 il bianco attacca il difensore del pedone e5 anziché il pedone stesso. È l'apertura più studiata della storia: dà al bianco una pressione lunga e silenziosa, senza scontri immediati, e produce posizioni in cui la manovra conta più del calcolo.","bianco":"Costruire il centro con c3 e d4, tenere l'alfiere sulla diagonale b1-h7 dopo Bc2, poi manovrare Nbd2-f1-g3 verso il re nero.","nero":"Guadagnare spazio sul lato di donna con b5 e c5, scegliere fra la chiusura del centro con d6 o la rottura immediata con d5 nelle varianti aperte.","insidia":{"nome":"L'Arca di Noè","mosse":"e4 e5 Nf3 Nc6 Bb5 a6 Ba4 d6 d4 b5 Bb3 Nxd4 Nxd4 exd4 Qxd4 c5 Qd5 Be6 Qc6+ Bd7 Qd5 c4","testo":"Il bianco prende il pedone centrale troppo presto e il nero chiude l'alfiere in b3 con la catena a6-b5-c4: tre pedoni che costruiscono una gabbia da cui l'alfiere non esce. Capita anche a giocatori forti quando il centro viene aperto senza aver prima portato via l'alfiere dalla diagonale."}},{"id":"najdorf","nome":"Difesa Siciliana, variante Najdorf","eco":"B90","famiglia":"Aperture di re","mosse":"e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6 Be3 e5 Nb3 Be6 f3 Be7 Qd2 O-O","idea":"La Siciliana è la risposta più aggressiva a 1.e4: il nero scambia un pedone laterale contro uno centrale e ottiene la colonna c semiaperta. La Najdorf aggiunge la piccola mossa a6, che toglie le case b5 ai pezzi bianchi e prepara b5 in un colpo solo. È stata l'apertura di Fischer e di Kasparov.","bianco":"Scegliere fra l'attacco diretto con arrocco lungo e g4-g5, oppure il gioco posizionale con Be2 e arrocco corto, puntando sulla casa debole d5.","nero":"Contrattaccare sul lato di donna con b5, e5 ed eventualmente d5, e sfruttare la colonna c contro il cavallo in c3.","insidia":{"nome":"Il pedone avvelenato","mosse":"e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6 Bg5 e6 f4 Qb6 Qd2 Qxb2 Rb1 Qa3","testo":"La donna nera entra a prendere il pedone b2 lasciando il proprio re al centro. Non è un errore: è teoria analizzata da settant'anni, giocata da Fischer contro Spassky. Ma chi ci finisce dentro senza conoscere le linee esatte di solito non esce vivo — a ogni mossa il bianco ha un attacco pronto e il nero una sola risposta valida."}},{"id":"francese","nome":"Difesa Francese","eco":"C18","famiglia":"Aperture di re","mosse":"e4 e6 d4 d5 Nc3 Bb4 e5 c5 a3 Bxc3+ bxc3 Ne7 Qg4 Qc7","idea":"Il nero sfida subito il centro bianco con d5, accettando in cambio un problema strutturale: l'alfiere campochiaro resta chiuso dietro la catena di pedoni e6-d5. Tutta la partita ruota intorno a questo pezzo e alla rottura c5 contro d4.","bianco":"Guadagnare spazio con e5, attaccare sul lato di re dove ha più spazio, tenere la catena d4-e5 con c3 e f4.","nero":"Attaccare la base della catena con c5 e f6, scambiare l'alfiere cattivo o attivarlo con b6 e Ba6.","insidia":{"nome":"Attacco Alekhine-Chatard","mosse":"e4 e6 d4 d5 Nc3 Nf6 Bg5 Be7 e5 Nfd7 h4 Bxg5 hxg5 Qxg5 Nh3","testo":"Il bianco offre il pedone h4 per aprire la colonna h contro il re nero, che dovrà ancora arroccare proprio da quella parte. Il nero può prendere, ma dopo Nh3 la donna viene scacciata e il bianco ha due torri pronte e uno sviluppo di due mosse in vantaggio."}},{"id":"carokann","nome":"Difesa Caro-Kann","eco":"B18","famiglia":"Aperture di re","mosse":"e4 c6 d4 d5 Nc3 dxe4 Nxe4 Bf5 Ng3 Bg6 h4 h6 Nf3 Nd7 h5 Bh7 Bd3 Bxd3 Qxd3 e6 Bd2 Ngf6 O-O-O","idea":"Come la Francese, il nero gioca d5 al secondo tratto — ma preparandolo con c6 anziché con e6, così l'alfiere campochiaro esce prima di chiudere la diagonale. È la difesa più solida contro 1.e4: struttura sana, pochi punti deboli, poche possibilità di perdere in apertura.","bianco":"Guadagnare spazio sul lato di re con h4-h5, arroccare lungo e attaccare, sfruttando il leggero vantaggio di sviluppo.","nero":"Completare lo sviluppo senza debolezze, arroccare corto o lungo a seconda di dove è andato il re bianco, poi puntare al finale dove la struttura sana pesa.","insidia":{"nome":"Il matto di Réti","mosse":"e4 c6 d4 d5 Nc3 dxe4 Nxe4 Nd7 Qe2 Ngf6 Nd6#","testo":"Il matto più corto che si vede regolarmente nelle partite di club: la donna in e2 sembra una mossa modesta, ma inchioda il pedone e7. Il nero sviluppa il cavallo in f6 come farebbe normalmente e riceve matto alla quarta mossa, con tutti i pezzi sulla scacchiera."}},{"id":"petroff","nome":"Difesa Russa (Petroff)","eco":"C42","famiglia":"Aperture di re","mosse":"e4 e5 Nf3 Nf6 Nxe5 d6 Nf3 Nxe4 d4 d5 Bd3 Be7 O-O Nc6 c4 Nb4","idea":"Anziché difendere il pedone e5, il nero ne attacca uno a sua volta. La simmetria che ne nasce ha fama di essere arida, ed è esattamente il motivo per cui viene scelta: è l'arma di chi con il nero cerca la patta contro avversari più forti, o posizioni chiare contro avversari che vivono di attacco.","bianco":"Cercare un piccolo vantaggio duraturo con c4 e pressione sul cavallo in e4, evitare gli scambi che portano a finali sterili.","nero":"Scambiare pezzi, mantenere la simmetria strutturale, non farsi cacciare il cavallo da e4 troppo presto.","insidia":{"nome":"La presa prematura","mosse":"e4 e5 Nf3 Nf6 Nxe5 Nxe4 Qe2 Nf6 Nc6+","testo":"Il nero risponde alla simmetria con la simmetria e cattura in e4 senza prima giocare d6. Dopo Qe2 il cavallo nero è inchiodato sulla colonna e; se si sposta, il cavallo bianco dà scacco di scoperta in c6 e vince la donna. È l'errore più comune di chi gioca la Petroff avendola solo sentita nominare."}},{"id":"scozzese","nome":"Partita Scozzese","eco":"C45","famiglia":"Aperture di re","mosse":"e4 e5 Nf3 Nc6 d4 exd4 Nxd4 Bc5 Be3 Qf6 c3 Nge7 Bc4 Ne5 Be2 Qg6","idea":"Il bianco apre il centro immediatamente invece di manovrare come nella Spagnola. Il risultato è una partita di pezzi, con meno teoria da ricordare e piani più diretti. Kasparov la riportò in vita nel match del 1990 proprio per uscire dalle linee preparate dell'avversario.","bianco":"Sviluppare rapidamente, tenere il cavallo centralizzato in d4 finché conviene, poi puntare sul lato di re con un piccolo vantaggio di spazio.","nero":"Attaccare subito il cavallo d4 con Bc5 o Nf6, poi liberarsi con d5 al momento giusto.","insidia":null},{"id":"gambettodire","nome":"Gambetto di Re","eco":"C33","famiglia":"Aperture di re","mosse":"e4 e5 f4 exf4 Nf3 g5 h4 g4 Ne5 Nf6 d4 d6 Nd3 Nxe4 Bxf4","idea":"Un pedone offerto alla seconda mossa per aprire la colonna f e prendersi il centro. È l'apertura dell'Ottocento per eccellenza: quasi scomparsa ai livelli alti, dove la difesa precisa vale più dell'iniziativa, ma ancora velenosa in partita rapida e sotto i 2000 punti.","bianco":"Riprendere il centro con d4, usare la colonna f per la torre, attaccare prima che il nero completi lo sviluppo.","nero":"Tenere il pedone in più se è possibile farlo senza ritardare lo sviluppo, oppure restituirlo subito con d5 per pareggiare il centro e il conto dei tempi.","insidia":{"nome":"Il matto di Legall","mosse":"e4 e5 Nf3 Nc6 Bc4 d6 Nc3 Bg4 Nxe5 Bxd1 Bxf7+ Ke7 Nd5#","testo":"Non nasce dal Gambetto di Re ma dalla stessa epoca e dallo stesso spirito. Il bianco lascia la donna in presa: se il nero la prende, arriva matto con alfiere e due cavalli in tre mosse. È il caso più chiaro di un'inchiodatura che in realtà non inchioda niente."}},{"id":"pirc","nome":"Difesa Pirc","eco":"B07","famiglia":"Aperture di re","mosse":"e4 d6 d4 Nf6 Nc3 g6 Nf3 Bg7 Be2 O-O O-O c6 a4 Nbd7 h3 e5","idea":"Il nero lascia che il bianco costruisca il centro che vuole e poi lo attacca da lontano con l'alfiere in fianchetto e le rotture c5 o e5. È scacchi ipermoderni applicati alla difesa: cedere spazio per guadagnare bersagli.","bianco":"Occupare il centro, scegliere fra l'attacco austriaco con f4 e il setup tranquillo con Be2, guadagnare spazio anche sul lato di donna con a4.","nero":"Non farsi soffocare: scegliere il momento della rottura centrale, tenere l'alfiere g7 attivo, usare la colonna c dopo c5.","insidia":null},{"id":"scandinava","nome":"Difesa Scandinava","eco":"B01","famiglia":"Aperture di re","mosse":"e4 d5 exd5 Qxd5 Nc3 Qa5 d4 Nf6 Nf3 c6 Bc4 Bf5 Bd2 e6 Qe2 Bb4 O-O-O","idea":"Il nero sfida il centro alla prima mossa e accetta di uscire con la donna presto. La regola dice di non farlo, ma qui la donna trova una casa stabile in a5 e il nero ottiene uno sviluppo rapido e una struttura senza debolezze, simile alla Caro-Kann con un tempo di differenza.","bianco":"Guadagnare tempi attaccando la donna, costruire con d4 e Nf3, arroccare lungo e usare il vantaggio di spazio.","nero":"Sistemare la donna in a5 o d6, sviluppare l'alfiere campochiaro fuori dalla catena prima di giocare e6, arroccare presto.","insidia":null},{"id":"qgd","nome":"Gambetto di Donna rifiutato","eco":"D37","famiglia":"Aperture di donna","mosse":"d4 d5 c4 e6 Nc3 Nf6 Nf3 Be7 Bf4 O-O e3 c5 dxc5 Bxc5 a3 Nc6 Qc2 Qa5","idea":"Il bianco offre il pedone c4 non per sacrificarlo ma per deviare il pedone d5 e restare padrone del centro. Il nero rifiuta e sostiene d5 con e6, accettando l'alfiere chiuso in cambio di una struttura granitica. È l'apertura classica dei match per il titolo mondiale.","bianco":"Pressione lenta sul centro, minoranza di pedoni sul lato di donna con b4-b5 nelle strutture di scambio, iniziativa sulla colonna c.","nero":"Liberarsi con c5 o con la rottura e5, risolvere il problema dell'alfiere campochiaro, poi puntare all'equilibrio.","insidia":{"nome":"La trappola dell'elefante","mosse":"d4 d5 c4 e6 Nc3 Nf6 Bg5 Nbd7 cxd5 exd5 Nxd5 Nxd5 Bxd8 Bb4+ Qd2 Bxd2+ Kxd2 Kxd8","testo":"Il cavallo nero in d7 sembra lasciare indifeso il cavallo f6 a causa dell'inchiodatura. Il bianco prende in d5, il nero riprende lo stesso: dopo Bxd8 arriva lo scacco intermedio Bb4+ e il nero recupera la donna restando con un pezzo di vantaggio."}},{"id":"qga","nome":"Gambetto di Donna accettato","eco":"D20","famiglia":"Aperture di donna","mosse":"d4 d5 c4 dxc4 Nf3 Nf6 e3 e6 Bxc4 c5 O-O a6 dxc5 Qxd1 Rxd1 Bxc5","idea":"Il nero prende il pedone senza l'intenzione di tenerlo: lo restituisce in cambio di un centro liberato e di sviluppo rapido. Il bianco recupera c4 con l'alfiere e ottiene un centro mobile e più spazio.","bianco":"Riprendere il pedone con l'alfiere, giocare e4 al momento giusto per aprire il centro mentre il nero è ancora in ritardo.","nero":"Non ostinarsi a tenere il pedone, colpire subito il centro con c5 o e5, cambiare le donne e puntare a un finale pari.","insidia":{"nome":"Difendere il pedone a tutti i costi","mosse":"d4 d5 c4 dxc4 e3 b5 a4 c6 axb5 cxb5 Qf3","testo":"Il nero cerca di tenere il pedone di gambetto con b5. Dopo a4 la catena si rompe e la donna bianca arriva in f3 attaccando insieme la torre in a8 e il pedone in b5: la colonna a aperta più la diagonale lunga costano al nero materiale decisivo."}},{"id":"slava","nome":"Difesa Slava","eco":"D15","famiglia":"Aperture di donna","mosse":"d4 d5 c4 c6 Nf3 Nf6 Nc3 dxc4 a4 Bf5 e3 e6 Bxc4 Bb4 O-O O-O","idea":"Il nero sostiene d5 con c6 invece che con e6: la differenza è che l'alfiere campochiaro resta libero di uscire in f5 o g4 prima di chiudere la diagonale. Risolve in apertura il problema che nel Gambetto di Donna rifiutato accompagna il nero per tutta la partita.","bianco":"Fissare la struttura con a4 per impedire b5, occupare la casa c5 o e5, giocare sulla colonna c.","nero":"Sviluppare l'alfiere fuori dalla catena, preparare la rottura c5 o e5 con tutti i pezzi pronti.","insidia":null},{"id":"nimzo","nome":"Difesa Nimzo-Indiana","eco":"E32","famiglia":"Aperture di donna","mosse":"d4 Nf6 c4 e6 Nc3 Bb4 Qc2 O-O a3 Bxc3+ Qxc3 b6 Bg5 Bb7 Nf3 d6 e3 Nbd7","idea":"Il nero inchioda il cavallo in c3 e si prepara a cederlo: dà via la coppia degli alfieri per raddoppiare i pedoni bianchi sulla colonna c e togliere al bianco il controllo della casa e4. È il compromesso strategico più famoso degli scacchi: due pezzi contro struttura.","bianco":"Aprire il gioco per far valere i due alfieri, spingere e4 o occupare il centro, nascondere la debolezza dei pedoni c.","nero":"Bloccare la posizione, attaccare i pedoni c doppiati, controllare e4 con Bb7, Ne4 e f5.","insidia":null},{"id":"kid","nome":"Difesa Indiana di Re","eco":"E97","famiglia":"Aperture di donna","mosse":"d4 Nf6 c4 g6 Nc3 Bg7 e4 d6 Nf3 O-O Be2 e5 O-O Nc6 d5 Ne7 Ne1 Nd7 Nd3 f5","idea":"Il nero cede volontariamente tutto il centro, arrocca e poi lo attacca con e5 e f5. Nella variante principale i due giocatori attaccano su lati opposti della scacchiera e vince chi arriva un tempo prima: è l'apertura più violenta e meno pattabile del repertorio con 1.d4.","bianco":"Chiudere il centro con d5 e attaccare sul lato di donna con c5, dove ha più spazio. Contare i tempi, non difendere.","nero":"Spingere f5, f4, g5, g4 verso il re bianco, spesso sacrificando materiale per aprire la colonna g o h.","insidia":null},{"id":"grunfeld","nome":"Difesa Grünfeld","eco":"D85","famiglia":"Aperture di donna","mosse":"d4 Nf6 c4 g6 Nc3 d5 cxd5 Nxd5 e4 Nxc3 bxc3 Bg7 Nf3 c5 Rb1 O-O Be2 cxd4 cxd4","idea":"Il nero lascia costruire al bianco un grande centro di pedoni per poi dimostrare che è un bersaglio, non una forza. Tutta la strategia nera consiste nel colpire d4 con c5, Bg7, Nc6 e Qa5 finché il centro non crolla. È l'apertura con cui Fischer vinse la partita del secolo.","bianco":"Tenere e sostenere il centro e4-d4, sviluppare rapidamente, puntare a spingere d5 e aprire la posizione mentre ha più spazio.","nero":"Pressione costante su d4 con pezzi, mai con il solo pedone; usare la diagonale lunga dell'alfiere in g7 e la colonna c.","insidia":null},{"id":"inglese","nome":"Apertura Inglese","eco":"A29","famiglia":"Sistemi di fianchetto","mosse":"c4 e5 Nc3 Nf6 Nf3 Nc6 g3 d5 cxd5 Nxd5 Bg2 Nb6 O-O Be7 d3 O-O a3 a5","idea":"Una Siciliana giocata con il bianco e un tempo in più: le strutture sono le stesse, ma con i colori invertiti. Il bianco controlla d5 a distanza con il pedone c e l'alfiere in fianchetto, senza impegnare i pedoni centrali.","bianco":"Pressione sulla colonna c e sulla casa d5, espansione con b4, trasposizioni verso 1.d4 quando conviene.","nero":"Occupare il centro con e5 e d5, sviluppare in modo naturale, evitare di restare senza piano in posizioni simmetriche.","insidia":null}]};</script>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+/* ================================================================
+   MOTORE
+   Prova a caricare Stockfish compilato per il browser da un CDN
+   pubblico. Se non ci riesce, usa il motore interno scritto qui
+   sotto, così l'analisi funziona comunque anche offline.
+   ================================================================ */
+
+const Motore = (function () {
+  const FONTI = [
+    'https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js',
+    'https://unpkg.com/stockfish.js@10.0.2/stockfish.js',
+    'https://cdn.jsdelivr.net/npm/stockfish@11.0.0/src/stockfish.js',
+    'https://unpkg.com/stockfish@11.0.0/src/stockfish.js'
+  ];
+
+  let worker = null;
+  let tipo = 'locale';
+  let avvio = null;
+  let richiesta = null;
+  let coda = Promise.resolve();
+
+  function creaWorker() {
+    const sorgente =
+      'var caricato=false;var fonti=' + JSON.stringify(FONTI) + ';' +
+      'for(var i=0;i<fonti.length;i++){try{importScripts(fonti[i]);caricato=true;break;}catch(e){}}' +
+      'if(!caricato){postMessage("SESSANTAQUATTRO_NON_CARICATO");}';
+    const blob = new Blob([sorgente], { type: 'application/javascript' });
+    return new Worker(URL.createObjectURL(blob));
+  }
+
+  function avviaStockfish() {
+    return new Promise((risolvi) => {
+      let concluso = false;
+      const fallisci = () => {
+        if (concluso) return;
+        concluso = true;
+        try { if (worker) worker.terminate(); } catch (e) {}
+        worker = null;
+        tipo = 'locale';
+        risolvi('locale');
+      };
+      let w;
+      try { w = creaWorker(); } catch (e) { return fallisci(); }
+      worker = w;
+      const scadenza = setTimeout(fallisci, 15000);
+
+      w.onerror = fallisci;
+      w.onmessage = (ev) => {
+        const riga = typeof ev.data === 'string' ? ev.data : (ev.data && ev.data.text) || '';
+        if (riga.indexOf('SESSANTAQUATTRO_NON_CARICATO') === 0) return fallisci();
+        if (riga.indexOf('uciok') === 0) { w.postMessage('isready'); return; }
+        if (riga.indexOf('readyok') === 0) {
+          if (concluso) return;
+          concluso = true;
+          clearTimeout(scadenza);
+          w.onmessage = ascoltaAnalisi;
+          tipo = 'stockfish';
+          risolvi('stockfish');
+          return;
+        }
+      };
+      try { w.postMessage('uci'); } catch (e) { fallisci(); }
+    });
+  }
+
+  function ascoltaAnalisi(ev) {
+    const riga = typeof ev.data === 'string' ? ev.data : (ev.data && ev.data.text) || '';
+    if (!richiesta) return;
+    if (riga.indexOf('info ') === 0 && riga.indexOf(' pv ') > -1) {
+      const prof = /\bdepth (\d+)/.exec(riga);
+      const cp = /\bscore cp (-?\d+)/.exec(riga);
+      const matto = /\bscore mate (-?\d+)/.exec(riga);
+      const pv = riga.split(' pv ')[1];
+      if (!pv) return;
+      richiesta.parziale = {
+        profondita: prof ? +prof[1] : 0,
+        cp: cp ? +cp[1] : null,
+        matto: matto ? +matto[1] : null,
+        pv: pv.trim().split(/\s+/)
+      };
+      if (richiesta.onAggiornamento) richiesta.onAggiornamento(normalizza(richiesta.parziale, richiesta.fen));
+    } else if (riga.indexOf('bestmove') === 0) {
+      const parti = riga.split(/\s+/);
+      const r = richiesta;
+      richiesta = null;
+      const esito = normalizza(r.parziale, r.fen);
+      esito.migliore = parti[1] && parti[1] !== '(none)' ? parti[1] : (esito.pv[0] || null);
+      r.risolvi(esito);
+    }
+  }
+
+  function normalizza(parziale, fen) {
+    const nero = fen.split(' ')[1] === 'b';
+    if (!parziale) return { profondita: 0, cp: 0, matto: null, pv: [], migliore: null };
+    return {
+      profondita: parziale.profondita,
+      cp: parziale.cp === null ? null : (nero ? -parziale.cp : parziale.cp),
+      matto: parziale.matto === null ? null : (nero ? -parziale.matto : parziale.matto),
+      pv: parziale.pv,
+      migliore: parziale.pv[0] || null
+    };
+  }
+
+  function inizializza() {
+    if (!avvio) avvio = avviaStockfish();
+    return avvio;
+  }
+
+  function analizza(fen, opzioni, onAggiornamento) {
+    const esegui = () => inizializza().then((quale) => {
+      if (quale === 'stockfish' && worker) {
+        if (richiesta) { try { worker.postMessage('stop'); } catch (e) {} }
+        return new Promise((risolvi) => {
+          richiesta = { fen, risolvi, onAggiornamento, parziale: null };
+          worker.postMessage('position fen ' + fen);
+          worker.postMessage('go depth ' + opzioni.profondita + ' movetime ' + opzioni.tempoMs);
+        });
+      }
+      return new Promise((risolvi) => {
+        setTimeout(() => risolvi(MotoreLocale.cerca(fen, opzioni.profondita, opzioni.tempoMs)), 12);
+      });
+    });
+    const p = coda.then(esegui, esegui);
+    coda = p.then(() => {}, () => {});
+    return p;
+  }
+
+  return {
+    inizializza,
+    analizza,
+    tipo: () => tipo,
+    profonditaSuggerita: () => (tipo === 'stockfish' ? 14 : 3),
+    profonditaMassima: () => (tipo === 'stockfish' ? 20 : 4)
+  };
+})();
+
+/* ---------------- motore interno di riserva ---------------- */
+
+const MotoreLocale = (function () {
+  const VALORE = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
+  const T = {
+    p: [0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10,
+        5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5,
+        5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
+    n: [-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30,
+        -30,5,15,20,20,15,5,-30, -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30,
+        -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],
+    b: [-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10,
+        -10,5,5,10,10,5,5,-10, -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10,
+        -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],
+    r: [0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5,
+        -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],
+    q: [-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10,
+        -5,0,5,5,5,5,0,-5, 0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10,
+        -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],
+    k: [-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30,
+        -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30,
+        -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10,
+        20,20,0,0,0,20,20,20, 20,30,10,0,0,10,30,20]
+  };
+  const MATTO = 100000;
+  const INTERROTTO = 'INTERROTTO';
+
+  function valuta(ch) {
+    const griglia = ch.board();
+    let punti = 0;
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const p = griglia[r][c];
+        if (!p) continue;
+        const i = r * 8 + c;
+        const base = VALORE[p.type] + T[p.type][p.color === 'w' ? i : (7 - r) * 8 + c];
+        punti += p.color === 'w' ? base : -base;
+      }
+    }
+    return ch.turn() === 'w' ? punti : -punti;
+  }
+
+  function ordina(mosse) {
+    return mosse.slice().sort((a, b) => peso(b) - peso(a));
+  }
+  function peso(m) {
+    let p = 0;
+    if (m.captured) p += 10 * VALORE[m.captured] - VALORE[m.piece];
+    if (m.promotion) p += VALORE[m.promotion];
+    if (m.san.indexOf('+') > -1) p += 40;
+    return p;
+  }
+
+  function quiescenza(ch, alfa, beta, scadenza, profondita) {
+    if (Date.now() > scadenza) throw INTERROTTO;
+    const fermo = valuta(ch);
+    if (fermo >= beta) return beta;
+    if (fermo > alfa) alfa = fermo;
+    if (profondita <= 0) return alfa;
+    const prese = ordina(ch.moves({ verbose: true }).filter((m) => m.captured || m.promotion));
+    for (const m of prese) {
+      ch.move(m);
+      const p = -quiescenza(ch, -beta, -alfa, scadenza, profondita - 1);
+      ch.undo();
+      if (p >= beta) return beta;
+      if (p > alfa) alfa = p;
+    }
+    return alfa;
+  }
+
+  function negamax(ch, profondita, alfa, beta, scadenza, linea, livello) {
+    if (Date.now() > scadenza) throw INTERROTTO;
+    const mosse = ch.moves({ verbose: true });
+    if (!mosse.length) return ch.in_check() ? -(MATTO - livello) : 0;
+    if (profondita <= 0) return quiescenza(ch, alfa, beta, scadenza, 3);
+    let migliore = null;
+    for (const m of ordina(mosse)) {
+      ch.move(m);
+      const sotto = [];
+      const p = -negamax(ch, profondita - 1, -beta, -alfa, scadenza, sotto, livello + 1);
+      ch.undo();
+      if (p > alfa) { alfa = p; migliore = m; linea.length = 0; linea.push(m.san, ...sotto); }
+      if (alfa >= beta) break;
+    }
+    if (migliore === null && linea) linea.length = 0;
+    return alfa;
+  }
+
+  function cerca(fen, profonditaMax, tempoMs) {
+    const ch = new Chess(fen);
+    const scadenza = Date.now() + Math.min(tempoMs || 1200, 3000);
+    const mosse = ch.moves({ verbose: true });
+    if (!mosse.length) return { profondita: 0, cp: 0, matto: null, pv: [], migliore: null, san: null };
+    let sanMigliore = mosse[0].san;
+    let uciMigliore = mosse[0].from + mosse[0].to + (mosse[0].promotion || '');
+    let punteggio = 0, pv = [sanMigliore], raggiunta = 0;
+
+    for (let d = 1; d <= Math.max(1, profonditaMax); d++) {
+      let alfa = -Infinity, sanGiro = null, uciGiro = null, pvGiro = [];
+      try {
+        for (const m of ordina(mosse)) {
+          ch.move(m);
+          const sotto = [];
+          const p = -negamax(ch, d - 1, -Infinity, -alfa, scadenza, sotto, 1);
+          ch.undo();
+          if (p > alfa || sanGiro === null) {
+            alfa = p; sanGiro = m.san;
+            uciGiro = m.from + m.to + (m.promotion || '');
+            pvGiro = [m.san, ...sotto];
+          }
+        }
+      } catch (e) {
+        if (e !== INTERROTTO) throw e;
+        break;
+      }
+      sanMigliore = sanGiro; uciMigliore = uciGiro; punteggio = alfa; pv = pvGiro; raggiunta = d;
+      if (Math.abs(alfa) > MATTO - 200) break;
+    }
+
+    const nero = ch.turn() === 'b';
+    let cp = punteggio, matto = null;
+    if (Math.abs(punteggio) > MATTO - 200) {
+      const distanza = Math.max(1, Math.ceil((MATTO - Math.abs(punteggio)) / 2));
+      matto = punteggio > 0 ? distanza : -distanza;
+      cp = null;
+    }
+    return {
+      profondita: raggiunta,
+      cp: cp === null ? null : (nero ? -cp : cp),
+      matto: matto === null ? null : (nero ? -matto : matto),
+      pv: [], pvSan: pv, migliore: uciMigliore, san: sanMigliore
+    };
+  }
+
+  return { cerca };
+})();
+
+/* ================================================================
+   UTILITÀ SCACCHISTICHE
+   ================================================================ */
+
+const COLONNE = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+const GLIFI = { k: '\u265A', q: '\u265B', r: '\u265C', b: '\u265D', n: '\u265E', p: '\u265F' };
+const NOMI_PEZZI = { q: 'Donna', r: 'Torre', b: 'Alfiere', n: 'Cavallo' };
+
+function elencoMosse(testo) {
+  return testo.trim().split(/\s+/);
+}
+
+function costruisci(mosse) {
+  const ch = new Chess();
+  for (const m of mosse) {
+    if (!ch.move(m, { sloppy: true })) break;
+  }
+  return ch;
+}
+
+function casaDelRe(ch) {
+  if (!ch.in_check()) return null;
+  const griglia = ch.board();
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const p = griglia[r][c];
+      if (p && p.type === 'k' && p.color === ch.turn()) return COLONNE[c] + (8 - r);
+    }
+  }
+  return null;
+}
+
+function uciInSan(fen, listaUci, quante) {
+  const ch = new Chess(fen);
+  const fuori = [];
+  for (const u of (listaUci || []).slice(0, quante || 8)) {
+    const m = ch.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' });
+    if (!m) break;
+    fuori.push(m.san);
+  }
+  return fuori;
+}
+
+function formattaValutazione(cp, matto) {
+  if (matto !== null && matto !== undefined) return (matto > 0 ? 'M' : '-M') + Math.abs(matto);
+  if (cp === null || cp === undefined) return '—';
+  const v = cp / 100;
+  return (v > 0 ? '+' : v < 0 ? '\u2212' : '') + Math.abs(v).toFixed(2);
+}
+
+function quotaBianco(cp, matto) {
+  if (matto !== null && matto !== undefined) return matto > 0 ? 100 : 0;
+  if (cp === null || cp === undefined) return 50;
+  return 100 / (1 + Math.exp(-cp / 380));
+}
+
+function descriviEsito(ch) {
+  if (ch.in_checkmate()) return ch.turn() === 'w' ? 'Scacco matto: vince il nero.' : 'Scacco matto: vince il bianco.';
+  if (ch.in_stalemate()) return 'Stallo: patta.';
+  if (ch.in_threefold_repetition()) return 'Patta per triplice ripetizione.';
+  if (ch.insufficient_material()) return 'Patta per materiale insufficiente.';
+  if (ch.in_draw()) return 'Patta.';
+  if (ch.in_check()) return 'Scacco.';
+  return null;
+}
+
+/* ================================================================
+   SCACCHIERA
+   ================================================================ */
+
+function Scacchiera({ posizione, orientamento, ultimaMossa, selezione, destinazioni, onCasa, interattiva }) {
+  const griglia = posizione.board();
+  const scacco = casaDelRe(posizione);
+  const righe = orientamento === 'b' ? [0, 1, 2, 3, 4, 5, 6, 7] : [7, 6, 5, 4, 3, 2, 1, 0];
+  const colonne = orientamento === 'b' ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
+  const case_ = [];
+
+  for (const r of righe) {
+    for (const c of colonne) {
+      const nome = COLONNE[c] + (8 - r);
+      const pezzo = griglia[r][c];
+      const scura = (r + c) % 2 === 1;
+      const bersaglio = destinazioni && destinazioni[nome];
+      const classi = ['casa'];
+      if (scura) classi.push('scura');
+      if (interattiva) classi.push('cliccabile');
+      if (ultimaMossa && (ultimaMossa.from === nome || ultimaMossa.to === nome)) classi.push('ultima');
+      if (selezione === nome) classi.push('selezionata');
+      if (scacco === nome) classi.push('scacco');
+      case_.push(
+        <button
+          key={nome}
+          type="button"
+          className={classi.join(' ')}
+          onClick={interattiva ? () => onCasa(nome) : undefined}
+          tabIndex={interattiva ? 0 : -1}
+          aria-label={nome + (pezzo ? ', ' + (pezzo.color === 'w' ? 'bianco' : 'nero') : ', vuota')}
+        >
+          {pezzo && <span className={'pezzo ' + (pezzo.color === 'w' ? 'b' : 'n')}>{GLIFI[pezzo.type]}</span>}
+          {bersaglio && <span className={'bersaglio' + (pezzo ? ' presa' : '')} />}
+          {c === (orientamento === 'b' ? 7 : 0) && <span className="coordinata rig">{8 - r}</span>}
+          {r === (orientamento === 'b' ? 0 : 7) && <span className="coordinata col">{COLONNE[c]}</span>}
+        </button>
+      );
+    }
+  }
+  return <div className="scacchiera">{case_}</div>;
+}
+
+/* ================================================================
+   LISTA MOSSE
+   ================================================================ */
+
+function ListaMosse({ mosse, ply, onVai, divergenza }) {
+  const contenitore = useRef(null);
+  useEffect(() => {
+    const n = contenitore.current && contenitore.current.querySelector('[aria-current="true"]');
+    if (n && n.scrollIntoView) n.scrollIntoView({ block: 'nearest' });
+  }, [ply]);
+
+  const righe = [];
+  for (let i = 0; i < mosse.length; i += 2) {
+    righe.push(
+      <div className="mossa-riga" key={i}>
+        <span className="num">{i / 2 + 1}.</span>
+        <button
+          type="button"
+          className={divergenza !== null && i >= divergenza ? 'var' : ''}
+          aria-current={ply === i + 1}
+          onClick={() => onVai(i + 1)}
+        >{mosse[i]}</button>
+        {mosse[i + 1] ? (
+          <button
+            type="button"
+            className={divergenza !== null && i + 1 >= divergenza ? 'var' : ''}
+            aria-current={ply === i + 2}
+            onClick={() => onVai(i + 2)}
+          >{mosse[i + 1]}</button>
+        ) : <span />}
+      </div>
+    );
+  }
+  return <div className="mosse" ref={contenitore}>{righe.length ? righe : <p style={{ color: 'var(--smorzato)', fontSize: 14 }}>Nessuna mossa.</p>}</div>;
+}
+
+/* ================================================================
+   PANNELLO MOTORE
+   ================================================================ */
+
+function PannelloMotore({ fen, automatico, onGioca, etichettaGioca }) {
+  const [esito, setEsito] = useState(null);
+  const [calcolando, setCalcolando] = useState(false);
+  const [profondita, setProfondita] = useState(null);
+  const [tipo, setTipo] = useState(null);
+  const [acceso, setAcceso] = useState(automatico);
+  const richiestaId = useRef(0);
+
+  // Stockfish pesa qualche megabyte: si scarica solo quando il motore viene acceso.
+  useEffect(() => {
+    if (!acceso) return;
+    let vivo = true;
+    Motore.inizializza().then((t) => {
+      if (!vivo) return;
+      setTipo(t);
+      setProfondita((p) => (p === null ? Motore.profonditaSuggerita() : p));
+    });
+    return () => { vivo = false; };
+  }, [acceso]);
+
+  const analizza = useCallback(() => {
+    if (profondita === null) return;
+    const id = ++richiestaId.current;
+    setCalcolando(true);
+    setEsito(null);
+    Motore.analizza(fen, { profondita, tempoMs: 2500 }, (parziale) => {
+      if (richiestaId.current === id) setEsito(parziale);
+    }).then((finale) => {
+      if (richiestaId.current !== id) return;
+      setEsito(finale);
+      setCalcolando(false);
+    }).catch(() => { if (richiestaId.current === id) setCalcolando(false); });
+  }, [fen, profondita]);
+
+  useEffect(() => {
+    if (!acceso || profondita === null) { richiestaId.current++; setEsito(null); setCalcolando(false); return; }
+    const ch = new Chess(fen);
+    if (ch.game_over()) { setEsito(null); setCalcolando(false); return; }
+    analizza();
+  }, [fen, acceso, profondita, analizza]);
+
+  const ch = useMemo(() => new Chess(fen), [fen]);
+  const finita = ch.game_over();
+  const quota = esito ? quotaBianco(esito.cp, esito.matto) : 50;
+  const sanMigliore = esito && esito.migliore
+    ? (esito.san || uciInSan(fen, [esito.migliore], 1)[0] || null)
+    : null;
+  const lineaSan = esito
+    ? (esito.pvSan && esito.pvSan.length ? esito.pvSan.slice(0, 8) : uciInSan(fen, esito.pv, 8))
+    : [];
+
+  return (
+    <div className="pannello">
+      <h3>Motore</h3>
+
+      {finita ? (
+        <p>La partita è finita: non c'è più niente da calcolare.</p>
+      ) : !acceso ? (
+        <p>Il motore è spento. Accendilo per vedere la valutazione della posizione e la mossa migliore.</p>
+      ) : (
+        <div>
+          <div className="valutazione">
+            <span className={'cifra' + (esito && ((esito.cp !== null && esito.cp < 0) || (esito.matto !== null && esito.matto < 0)) ? ' n' : '')}>
+              {esito ? formattaValutazione(esito.cp, esito.matto) : '…'}
+            </span>
+            <span className="eco">{esito && esito.profondita ? 'profondità ' + esito.profondita : (calcolando ? 'sto calcolando' : '')}</span>
+          </div>
+          <div className="barra"><i style={{ width: quota + '%' }} /></div>
+          {sanMigliore && (
+            <div className="dettaglio">
+              Mossa migliore: <span className="migliore">{sanMigliore}</span>
+            </div>
+          )}
+          {lineaSan.length > 1 && (
+            <div className="dettaglio">Linea: <b>{lineaSan.join(' ')}</b></div>
+          )}
+          {sanMigliore && onGioca && (
+            <div className="riga-tasti">
+              <button type="button" className="tasto pieno" onClick={() => onGioca(sanMigliore)}>
+                {etichettaGioca || 'Gioca ' + sanMigliore}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="campo">
+        <button type="button" className="tasto" onClick={() => setAcceso(!acceso)}>
+          {acceso ? 'Spegni il motore' : 'Accendi il motore'}
+        </button>
+        {acceso && !finita && (
+          <button type="button" className="tasto" onClick={analizza} disabled={calcolando}>
+            Ricalcola
+          </button>
+        )}
+      </div>
+
+      {acceso && profondita !== null && (
+        <div className="campo">
+          <label htmlFor="prof">Profondità {profondita}</label>
+          <input
+            id="prof" type="range" min="1" max={Motore.profonditaMassima()} value={profondita}
+            onChange={(e) => setProfondita(+e.target.value)}
+          />
+        </div>
+      )}
+
+      {acceso && (
+        <span className="spia">
+          <i className={tipo === 'stockfish' ? '' : tipo === null ? 'attesa' : 'locale'} />
+          {tipo === 'stockfish' ? 'Stockfish, in esecuzione nel browser'
+            : tipo === null ? 'sto scaricando il motore'
+            : 'motore interno di riserva'}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================
+   SCACCHIERA GIOCABILE (usata da tutte e tre le sezioni)
+   ================================================================ */
+
+function useLinea(mosseOriginali) {
+  const [mosse, setMosse] = useState(mosseOriginali);
+  const [ply, setPly] = useState(mosseOriginali.length ? 0 : 0);
+
+  useEffect(() => { setMosse(mosseOriginali); setPly(0); }, [mosseOriginali]);
+
+  const divergenza = useMemo(() => {
+    for (let i = 0; i < mosse.length; i++) {
+      if (mosse[i] !== mosseOriginali[i]) return i;
+    }
+    return mosse.length < mosseOriginali.length ? null : null;
+  }, [mosse, mosseOriginali]);
+
+  const posizione = useMemo(() => costruisci(mosse.slice(0, ply)), [mosse, ply]);
+
+  const ultimaMossa = useMemo(() => {
+    if (!ply) return null;
+    const storia = posizione.history({ verbose: true });
+    const u = storia[storia.length - 1];
+    return u ? { from: u.from, to: u.to } : null;
+  }, [posizione, ply]);
+
+  function gioca(mossa) {
+    const ch = costruisci(mosse.slice(0, ply));
+    const fatta = ch.move(mossa);
+    if (!fatta) return false;
+    if (mosse[ply] === fatta.san) { setPly(ply + 1); return true; }
+    setMosse(mosse.slice(0, ply).concat([fatta.san]));
+    setPly(ply + 1);
+    return true;
+  }
+
+  function ripristina() { setMosse(mosseOriginali); }
+  function ricomincia() { setMosse(mosseOriginali); setPly(0); }
+
+  return { mosse, ply, setPly, posizione, ultimaMossa, divergenza, gioca, ripristina, ricomincia };
+}
+
+function ScacchieraGiocabile({ linea, orientamento, interattiva }) {
+  const [selezione, setSelezione] = useState(null);
+  const [promozione, setPromozione] = useState(null);
+  const { posizione, ply, ultimaMossa, gioca } = linea;
+
+  useEffect(() => { setSelezione(null); }, [ply, posizione]);
+
+  const destinazioni = useMemo(() => {
+    if (!selezione) return null;
+    const m = {};
+    posizione.moves({ square: selezione, verbose: true }).forEach((x) => { m[x.to] = true; });
+    return m;
+  }, [selezione, posizione]);
+
+  function suCasa(casa) {
+    const pezzo = posizione.get(casa);
+    if (selezione) {
+      const candidate = posizione.moves({ square: selezione, verbose: true }).filter((m) => m.to === casa);
+      if (candidate.length) {
+        if (candidate.some((m) => m.promotion)) { setPromozione({ from: selezione, to: casa }); setSelezione(null); return; }
+        gioca({ from: selezione, to: casa });
+        setSelezione(null);
+        return;
+      }
+    }
+    if (pezzo && pezzo.color === posizione.turn()) setSelezione(casa === selezione ? null : casa);
+    else setSelezione(null);
+  }
+
+  return (
+    <div className="scacchiera-guscio">
+      <Scacchiera
+        posizione={posizione}
+        orientamento={orientamento}
+        ultimaMossa={ultimaMossa}
+        selezione={selezione}
+        destinazioni={destinazioni}
+        onCasa={suCasa}
+        interattiva={interattiva && !posizione.game_over()}
+      />
+      {promozione && (
+        <div className="velo" onClick={() => setPromozione(null)}>
+          <div className="dialogo" onClick={(e) => e.stopPropagation()}>
+            <h3>Scegli il pezzo</h3>
+            <div className="scelte">
+              {['q', 'r', 'b', 'n'].map((p) => (
+                <button key={p} type="button" title={NOMI_PEZZI[p]} onClick={() => {
+                  gioca({ from: promozione.from, to: promozione.to, promotion: p });
+                  setPromozione(null);
+                }}>
+                  <span className={'pezzo ' + (posizione.turn() === 'w' ? 'b' : 'n')}>{GLIFI[p]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Navigazione({ linea, onGira, extra }) {
+  const { ply, setPly, mosse } = linea;
+  useEffect(() => {
+    function tasti(e) {
+      if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+      if (e.key === 'ArrowLeft') { setPly(Math.max(0, ply - 1)); }
+      else if (e.key === 'ArrowRight') { setPly(Math.min(mosse.length, ply + 1)); }
+    }
+    window.addEventListener('keydown', tasti);
+    return () => window.removeEventListener('keydown', tasti);
+  }, [ply, mosse.length, setPly]);
+
+  return (
+    <div className="controlli">
+      <button type="button" className="tasto nav" onClick={() => setPly(0)} disabled={ply === 0} aria-label="Vai all'inizio">&#124;&#9664;</button>
+      <button type="button" className="tasto nav" onClick={() => setPly(Math.max(0, ply - 1))} disabled={ply === 0} aria-label="Mossa precedente">&#9664;</button>
+      <button type="button" className="tasto nav" onClick={() => setPly(Math.min(mosse.length, ply + 1))} disabled={ply >= mosse.length} aria-label="Mossa successiva">&#9654;</button>
+      <button type="button" className="tasto nav" onClick={() => setPly(mosse.length)} disabled={ply >= mosse.length} aria-label="Vai alla fine">&#9654;&#124;</button>
+      {onGira && <button type="button" className="tasto" onClick={onGira}>Gira la scacchiera</button>}
+      {extra}
+    </div>
+  );
+}
+
+/* ================================================================
+   SEZIONE: PARTITE
+   ================================================================ */
+
+function SezionePartite({ primoAvvio, consumaPrimoAvvio }) {
+  const [idPartita, setIdPartita] = useState(DATI.partite[0].id);
+  const partita = DATI.partite.find((p) => p.id === idPartita);
+  const originali = useMemo(() => elencoMosse(partita.mosse), [partita]);
+  const linea = useLinea(originali);
+  const [orientamento, setOrientamento] = useState('w');
+  const [inArrivo, setInArrivo] = useState(false);
+
+  // Unico movimento non richiesto della pagina: al primo caricamento la
+  // scacchiera gioca da sola le ultime semimosse dell'Immortale.
+  useEffect(() => {
+    if (!primoAvvio) return;
+    consumaPrimoAvvio();
+    const totale = originali.length;
+    const ridotto = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (ridotto) { linea.setPly(totale); return; }
+    let corrente = Math.max(0, totale - 8);
+    linea.setPly(corrente);
+    setInArrivo(true);
+    const t = setInterval(() => {
+      corrente += 1;
+      linea.setPly(corrente);
+      if (corrente >= totale) { clearInterval(t); setInArrivo(false); }
+    }, 850);
+    return () => clearInterval(t);
+    // eslint-disable-next-line
+  }, []);
+
+  const nota = linea.divergenza === null && partita.note[linea.ply] ? partita.note[linea.ply] : null;
+  const esito = descriviEsito(linea.posizione);
+  const inVariante = linea.divergenza !== null;
+
+  return (
+    <div className="sezione">
+      <div className="colonna-stretta">
+        <div>
+          <div className="famiglia">Undici partite</div>
+          <div className="elenco">
+            {DATI.partite.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="voce"
+                aria-current={p.id === idPartita}
+                onClick={() => { setIdPartita(p.id); setInArrivo(false); }}
+              >
+                <span className="vt">{p.titolo}</span>
+                <span className="vs">{p.bianco.split(' ').slice(-1)[0]} – {p.nero.split(' ').slice(-1)[0]}, {p.anno}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="intestazione">
+            <h2>{partita.titolo}</h2>
+            <p className="giocatori">
+              <b>{partita.bianco}</b> – <b>{partita.nero}</b> &nbsp;·&nbsp; {partita.luogo}, {partita.anno} &nbsp;·&nbsp; {partita.risultato} &nbsp;·&nbsp; {partita.apertura}
+            </p>
+            <p className="occhiello">{partita.occhiello}</p>
+          </div>
+
+          <div className="tavola">
+            <div>
+              <ScacchieraGiocabile linea={linea} orientamento={orientamento} interattiva={true} />
+              <Navigazione
+                linea={linea}
+                onGira={() => setOrientamento(orientamento === 'w' ? 'b' : 'w')}
+              />
+              {inArrivo && (
+                <div className="avviso">
+                  Stai guardando il finale dell'<b>Immortale</b>. Premi il tasto di inizio per rivederla dalla prima mossa.
+                </div>
+              )}
+              {inVariante && (
+                <div className="avviso">
+                  Hai lasciato la partita originale: da qui in poi <b>stai giocando tu</b>.
+                  <div className="riga-tasti">
+                    <button type="button" className="tasto" onClick={linea.ripristina}>Torna alla partita giocata</button>
+                  </div>
+                </div>
+              )}
+              {esito && <div className="esito">{esito}</div>}
+              <div className="nota">
+                {nota ? (
+                  <span>
+                    <span className="etichetta">Mossa {Math.ceil(linea.ply / 2)}{linea.ply % 2 ? '. ' : '… '}{linea.mosse[linea.ply - 1]}</span>
+                    {nota}
+                  </span>
+                ) : linea.ply === 0 ? partita.intro
+                  : inVariante ? 'Sei fuori dalla partita storica. Il motore qui sotto ti dice se la tua mossa regge.'
+                  : 'Prosegui con le frecce o scegli una mossa dall\u2019elenco.'}
+              </div>
+            </div>
+
+            <div>
+              <div className="pannello">
+                <h3>Mosse</h3>
+                <ListaMosse mosse={linea.mosse} ply={linea.ply} onVai={linea.setPly} divergenza={linea.divergenza} />
+              </div>
+              <PannelloMotore fen={linea.posizione.fen()} automatico={false} onGioca={(san) => linea.gioca(san)} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   SEZIONE: ANALISI
+   ================================================================ */
+
+const VUOTE = [];
+
+function SezioneAnalisi() {
+  const linea = useLinea(VUOTE);
+  const [orientamento, setOrientamento] = useState('w');
+  const [avversario, setAvversario] = useState('nessuno');
+  const { posizione, mosse, ply } = linea;
+  const fen = posizione.fen();
+
+  useEffect(() => {
+    if (avversario === 'nessuno') return;
+    if (posizione.turn() !== avversario) return;
+    if (posizione.game_over()) return;
+    if (ply < mosse.length) return;
+    let vivo = true;
+    const t = setTimeout(() => {
+      Motore.analizza(fen, { profondita: Motore.profonditaSuggerita(), tempoMs: 1500 }).then((r) => {
+        if (!vivo || !r) return;
+        const mossa = r.san || (r.migliore ? { from: r.migliore.slice(0, 2), to: r.migliore.slice(2, 4), promotion: r.migliore[4] || 'q' } : null);
+        if (mossa) linea.gioca(mossa);
+      });
+    }, 250);
+    return () => { vivo = false; clearTimeout(t); };
+    // eslint-disable-next-line
+  }, [fen, avversario, ply, mosse.length]);
+
+  const esito = descriviEsito(posizione);
+
+  return (
+    <div className="sezione">
+      <div className="intestazione">
+        <h2>Analisi</h2>
+        <p className="occhiello">Muovi liberamente e chiedi al motore qual è la mossa migliore, mossa dopo mossa.</p>
+      </div>
+
+      <div className="tavola">
+        <div>
+          <ScacchieraGiocabile linea={linea} orientamento={orientamento} interattiva={true} />
+          <Navigazione
+            linea={linea}
+            onGira={() => setOrientamento(orientamento === 'w' ? 'b' : 'w')}
+            extra={
+              <button type="button" className="tasto" onClick={linea.ricomincia} disabled={!mosse.length}>Ricomincia</button>
+            }
+          />
+          {esito && <div className="esito">{esito}</div>}
+          <div className="campo">
+            <label htmlFor="avv">Il motore gioca</label>
+            <select id="avv" value={avversario} onChange={(e) => setAvversario(e.target.value)}>
+              <option value="nessuno">nessuno: muovo io entrambi i colori</option>
+              <option value="b">con il bianco</option>
+              <option value="n">con il nero</option>
+            </select>
+          </div>
+          <p className="dettaglio" style={{ marginTop: 14 }}>
+            Con le frecce della tastiera torni indietro e vai avanti nella tua stessa partita. Se muovi dopo essere
+            tornato indietro, la linea riparte da lì.
+          </p>
+        </div>
+
+        <div>
+          <PannelloMotore fen={fen} automatico={true} onGioca={(san) => linea.gioca(san)} />
+          <div className="pannello">
+            <h3>Mosse</h3>
+            <ListaMosse mosse={linea.mosse} ply={linea.ply} onVai={linea.setPly} divergenza={null} />
+            <div className="riga-tasti">
+              <button type="button" className="tasto" onClick={() => {
+                const testo = linea.mosse.map((m, i) => (i % 2 === 0 ? (i / 2 + 1) + '. ' : '') + m).join(' ');
+                if (navigator.clipboard) navigator.clipboard.writeText(testo);
+              }} disabled={!linea.mosse.length}>Copia le mosse</button>
+              <button type="button" className="tasto" onClick={() => {
+                if (navigator.clipboard) navigator.clipboard.writeText(fen);
+              }}>Copia la FEN</button>
+            </div>
+            <p className="dettaglio">Posizione attuale<br /><b>{fen}</b></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   SEZIONE: APERTURE
+   ================================================================ */
+
+function SezioneAperture() {
+  const [idApertura, setIdApertura] = useState(DATI.aperture[0].id);
+  const [mostraInsidia, setMostraInsidia] = useState(false);
+  const apertura = DATI.aperture.find((a) => a.id === idApertura);
+  const testo = mostraInsidia && apertura.insidia ? apertura.insidia.mosse : apertura.mosse;
+  const originali = useMemo(() => elencoMosse(testo), [testo]);
+  const linea = useLinea(originali);
+  const [orientamento, setOrientamento] = useState('w');
+
+  useEffect(() => { linea.setPly(originali.length); }, [originali]); // eslint-disable-line
+
+  const famiglie = [];
+  DATI.aperture.forEach((a) => {
+    if (!famiglie.length || famiglie[famiglie.length - 1].nome !== a.famiglia) famiglie.push({ nome: a.famiglia, voci: [] });
+    famiglie[famiglie.length - 1].voci.push(a);
+  });
+
+  function cambia(id) {
+    setIdApertura(id);
+    setMostraInsidia(false);
+  }
+
+  const inVariante = linea.divergenza !== null;
+
+  return (
+    <div className="sezione">
+      <div className="colonna-stretta">
+        <div>
+          {famiglie.map((f) => (
+            <div key={f.nome}>
+              <div className="famiglia">{f.nome}</div>
+              <div className="elenco">
+                {f.voci.map((a) => (
+                  <button key={a.id} type="button" className="voce" aria-current={a.id === idApertura} onClick={() => cambia(a.id)}>
+                    <span className="vt">{a.nome}</span>
+                    <span className="vs">{a.eco}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <div className="intestazione">
+            <h2>{apertura.nome}</h2>
+            <p className="giocatori">{apertura.eco} &nbsp;·&nbsp; {apertura.famiglia}</p>
+          </div>
+
+          <div className="tavola">
+            <div>
+              <ScacchieraGiocabile linea={linea} orientamento={orientamento} interattiva={true} />
+              <Navigazione linea={linea} onGira={() => setOrientamento(orientamento === 'w' ? 'b' : 'w')} />
+              {apertura.insidia && (
+                <div className="riga-tasti">
+                  <button
+                    type="button"
+                    className={'tasto' + (mostraInsidia ? ' pieno' : '')}
+                    onClick={() => setMostraInsidia(!mostraInsidia)}
+                  >
+                    {mostraInsidia ? 'Torna alla linea principale' : 'Mostra l\u2019insidia: ' + apertura.insidia.nome}
+                  </button>
+                </div>
+              )}
+              {inVariante && (
+                <div className="avviso">
+                  Hai lasciato la linea teorica: <b>stai esplorando per conto tuo</b>.
+                  <div className="riga-tasti">
+                    <button type="button" className="tasto" onClick={linea.ripristina}>Torna alla linea</button>
+                  </div>
+                </div>
+              )}
+              <div className="linea-principale" style={{ marginTop: 16 }}>
+                {linea.mosse.map((m, i) => (
+                  <React.Fragment key={i}>
+                    {i % 2 === 0 && <span className="num">{i / 2 + 1}.</span>}
+                    <button type="button" aria-current={linea.ply === i + 1} onClick={() => linea.setPly(i + 1)}>{m}</button>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              {mostraInsidia && apertura.insidia ? (
+                <div className="pannello">
+                  <h3>{apertura.insidia.nome}</h3>
+                  <p>{apertura.insidia.testo}</p>
+                </div>
+              ) : (
+                <div className="pannello">
+                  <h3>L&#8217;idea</h3>
+                  <p>{apertura.idea}</p>
+                  <dl className="piani">
+                    <dt>Piano del bianco</dt>
+                    <dd>{apertura.bianco}</dd>
+                    <dt>Piano del nero</dt>
+                    <dd>{apertura.nero}</dd>
+                  </dl>
+                </div>
+              )}
+              <PannelloMotore fen={linea.posizione.fen()} automatico={false} onGioca={(san) => linea.gioca(san)} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   APP
+   ================================================================ */
+
+function App() {
+  const [sezione, setSezione] = useState('partite');
+  const primo = useRef(true);
+
+  const schede = [
+    { id: 'partite', nome: 'Partite' },
+    { id: 'analisi', nome: 'Analisi' },
+    { id: 'aperture', nome: 'Aperture' }
+  ];
+
+  return (
+    <div className="guscio">
+      <header className="testata">
+        <div className="marchio">
+          <h1>Sessantaquattro</h1>
+          <p>Le partite che hanno fatto la storia, una scacchiera per provarci sopra le tue mosse e una libreria di aperture.</p>
+        </div>
+        <nav className="navigazione">
+          {schede.map((s) => (
+            <button key={s.id} type="button" aria-current={sezione === s.id} onClick={() => setSezione(s.id)}>{s.nome}</button>
+          ))}
+        </nav>
+      </header>
+
+      {sezione === 'partite' && <SezionePartite primoAvvio={primo.current} consumaPrimoAvvio={() => { primo.current = false; }} />}
+      {sezione === 'analisi' && <SezioneAnalisi />}
+      {sezione === 'aperture' && <SezioneAperture />}
+
+      <footer className="piede">
+        Le mosse delle partite storiche sono state verificate una per una. Le valutazioni arrivano da Stockfish
+        compilato per il browser: girano sul tuo computer, non su un server, e non costano nulla. Se il motore non
+        riesce a scaricarsi, l&#8217;analisi passa a un motore interno più semplice e il sito continua a funzionare.
+      </footer>
+    </div>
+  );
+}
+
+if (typeof Chess === 'undefined' || typeof ReactDOM === 'undefined') {
+  document.getElementById('root').innerHTML =
+    '<div style="padding:60px 20px;max-width:640px;margin:0 auto;font-family:Karla,sans-serif">' +
+    '<h1 style="font-family:Bodoni Moda,serif;font-weight:500">Manca una libreria</h1>' +
+    '<p>Una delle librerie che servono al sito non si è caricata. ' +
+    'Controlla la connessione e ricarica la pagina.</p></div>';
+} else {
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+</script>
+</body>
+</html>
