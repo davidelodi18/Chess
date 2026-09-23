@@ -86,6 +86,34 @@ button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
 
 /* ---------- scacchiera ---------- */
 .scacchiera-guscio{max-width:560px}
+.scacchiera-guscio.con-barra{max-width:582px}
+.scacchiera-riga{display:flex;gap:8px;align-items:stretch}
+.scacchiera-riga .scacchiera{flex:1;min-width:0}
+.barra-verticale{
+  flex:none;width:14px;display:flex;flex-direction:column-reverse;
+  background:#2A211A;border:1px solid #0D0906;border-radius:2px;overflow:hidden;
+}
+.barra-verticale.capovolta{flex-direction:column}
+.barra-verticale i{display:block;width:100%;background:var(--bosso);transition:height .35s ease}
+.barra-verticale.spenta{opacity:.35}
+/* ---------- striscia del motore sotto la scacchiera ---------- */
+.striscia{margin-top:12px;max-width:582px;background:var(--tavolo);border:1px solid var(--linea);border-radius:6px;padding:10px 14px}
+.striscia-lato{margin-top:0;margin-bottom:18px;max-width:none}
+@media(min-width:881px){.striscia-sotto{display:none}}
+@media(max-width:880px){.striscia-lato{display:none}}
+.striscia-riga{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.striscia .cifra{font-family:var(--nota);font-size:21px;font-weight:600;letter-spacing:-.02em;min-width:66px}
+.striscia .cifra.n{color:var(--smorzato)}
+.striscia-migliore{font-family:var(--nota);font-size:13px;color:var(--smorzato)}
+.striscia-migliore b{color:var(--ottone);font-size:17px;font-weight:600;margin-left:3px}
+.striscia-testo{font-size:14px;color:var(--smorzato)}
+.striscia .spazio{flex:1}
+.tasto.piccolo{padding:4px 11px;font-size:13px}
+.striscia-linea{margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.striscia-piede{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:6px}
+.striscia-piede .spia{margin-top:0}
+.striscia-piede label{font-family:var(--nota);font-size:11.5px;color:var(--smorzato);display:flex;align-items:center;gap:8px}
+.striscia-piede input[type=range]{width:110px;accent-color:var(--ottone)}
 .scacchiera{
   display:grid;
   /* Servono anche le righe: senza, le traverse con i pezzi diventano più alte
@@ -3142,25 +3170,24 @@ function ListaMosse({
 }
 
 /* ================================================================
-   PANNELLO MOTORE
+   MOTORE: stato condiviso fra la barra accanto alla scacchiera e la
+   striscia sotto i comandi, così valutazione e mossa migliore restano
+   sempre vicine alla scacchiera.
    ================================================================ */
 
-function PannelloMotore({
-  fen,
-  automatico,
-  onGioca,
-  etichettaGioca
-}) {
+function useMotore(fen, automatico, abilitato) {
+  const attivabile = abilitato !== false;
   const [esito, setEsito] = useState(null);
   const [calcolando, setCalcolando] = useState(false);
   const [profondita, setProfondita] = useState(null);
   const [tipo, setTipo] = useState(null);
-  const [acceso, setAcceso] = useState(automatico);
+  const [acceso, setAcceso] = useState(!!automatico);
   const richiestaId = useRef(0);
+  const inFunzione = attivabile && acceso;
 
   // Stockfish pesa qualche megabyte: si scarica solo quando il motore viene acceso.
   useEffect(() => {
-    if (!acceso) return;
+    if (!inFunzione) return;
     let vivo = true;
     Motore.inizializza().then(t => {
       if (!vivo) return;
@@ -3170,7 +3197,7 @@ function PannelloMotore({
     return () => {
       vivo = false;
     };
-  }, [acceso]);
+  }, [inFunzione]);
   const analizza = useCallback(() => {
     if (profondita === null) return;
     const id = ++richiestaId.current;
@@ -3189,79 +3216,122 @@ function PannelloMotore({
       if (richiestaId.current === id) setCalcolando(false);
     });
   }, [fen, profondita]);
+  const ch = useMemo(() => new Chess(fen), [fen]);
+  const finita = ch.game_over();
   useEffect(() => {
-    if (!acceso || profondita === null) {
+    if (!inFunzione || profondita === null || finita) {
       richiestaId.current++;
       setEsito(null);
       setCalcolando(false);
       return;
     }
-    const ch = new Chess(fen);
-    if (ch.game_over()) {
-      setEsito(null);
-      setCalcolando(false);
-      return;
-    }
     analizza();
-  }, [fen, acceso, profondita, analizza]);
-  const ch = useMemo(() => new Chess(fen), [fen]);
-  const finita = ch.game_over();
-  const quota = esito ? quotaBianco(esito.cp, esito.matto) : 50;
+  }, [fen, inFunzione, profondita, analizza, finita]);
   const sanMigliore = esito && esito.migliore ? esito.san || uciInSan(fen, [esito.migliore], 1)[0] || null : null;
   const lineaSan = esito ? esito.pvSan && esito.pvSan.length ? esito.pvSan.slice(0, 8) : uciInSan(fen, esito.pv, 8) : [];
+  return {
+    abilitato: attivabile,
+    acceso,
+    setAcceso,
+    attivo: inFunzione && !finita,
+    finita,
+    esito,
+    calcolando,
+    profondita,
+    setProfondita,
+    tipo,
+    analizza,
+    quota: esito ? quotaBianco(esito.cp, esito.matto) : 50,
+    sanMigliore,
+    lineaSan
+  };
+}
+function BarraValutazione({
+  motore,
+  orientamento
+}) {
+  const attiva = motore.attivo && motore.esito;
   return /*#__PURE__*/React.createElement("div", {
-    className: "pannello"
-  }, /*#__PURE__*/React.createElement("h3", null, "Motore"), finita ? /*#__PURE__*/React.createElement("p", null, "La partita è finita: non c'è più niente da calcolare.") : !acceso ? /*#__PURE__*/React.createElement("p", null, "Il motore è spento. Accendilo per vedere la valutazione della posizione e la mossa migliore.") : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "valutazione"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: 'cifra' + (esito && (esito.cp !== null && esito.cp < 0 || esito.matto !== null && esito.matto < 0) ? ' n' : '')
-  }, esito ? formattaValutazione(esito.cp, esito.matto) : '…'), /*#__PURE__*/React.createElement("span", {
-    className: "eco"
-  }, esito && esito.profondita ? 'profondità ' + esito.profondita : calcolando ? 'sto calcolando' : '')), /*#__PURE__*/React.createElement("div", {
-    className: "barra"
+    className: 'barra-verticale' + (orientamento === 'b' ? ' capovolta' : '') + (attiva ? '' : ' spenta'),
+    title: attiva ? 'Valutazione: ' + formattaValutazione(motore.esito.cp, motore.esito.matto) : 'Motore spento',
+    "aria-hidden": "true"
   }, /*#__PURE__*/React.createElement("i", {
     style: {
-      width: quota + '%'
+      height: (attiva ? motore.quota : 50) + '%'
     }
-  })), sanMigliore && /*#__PURE__*/React.createElement("div", {
-    className: "dettaglio"
-  }, "Mossa migliore: ", /*#__PURE__*/React.createElement("span", {
-    className: "migliore"
-  }, sanMigliore)), lineaSan.length > 1 && /*#__PURE__*/React.createElement("div", {
-    className: "dettaglio"
-  }, "Linea: ", /*#__PURE__*/React.createElement("b", null, lineaSan.join(' '))), sanMigliore && onGioca && /*#__PURE__*/React.createElement("div", {
-    className: "riga-tasti"
-  }, /*#__PURE__*/React.createElement("button", {
+  }));
+}
+// dove: 'lato' = colonna di destra accanto alla scacchiera (schermi larghi),
+// 'sotto' = sotto i comandi della scacchiera (telefono).
+function StrisciaMotore({
+  motore: m,
+  onGioca,
+  dove
+}) {
+  if (!m.abilitato) return null;
+  const classe = 'striscia striscia-' + (dove || 'sotto');
+  if (m.finita) return /*#__PURE__*/React.createElement("div", {
+    className: classe
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "striscia-testo"
+  }, "La partita è finita: non c'è più niente da calcolare."));
+  if (!m.acceso) return /*#__PURE__*/React.createElement("div", {
+    className: classe
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "striscia-riga"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "striscia-testo"
+  }, "Motore spento"), /*#__PURE__*/React.createElement("span", {
+    className: "spazio"
+  }), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: "tasto pieno",
-    onClick: () => onGioca(sanMigliore)
-  }, etichettaGioca || 'Gioca ' + sanMigliore))), /*#__PURE__*/React.createElement("div", {
-    className: "campo"
-  }, /*#__PURE__*/React.createElement("button", {
+    className: "tasto piccolo",
+    onClick: () => m.setAcceso(true)
+  }, "Accendi il motore")));
+  const e = m.esito;
+  const negativa = e && (e.cp !== null && e.cp < 0 || e.matto !== null && e.matto < 0);
+  return /*#__PURE__*/React.createElement("div", {
+    className: classe,
+    "aria-live": "polite"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "striscia-riga"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: 'cifra' + (negativa ? ' n' : '')
+  }, e ? formattaValutazione(e.cp, e.matto) : '…'), m.sanMigliore ? /*#__PURE__*/React.createElement("span", {
+    className: "striscia-migliore"
+  }, "migliore ", /*#__PURE__*/React.createElement("b", null, m.sanMigliore)) : /*#__PURE__*/React.createElement("span", {
+    className: "striscia-testo"
+  }, m.tipo === null ? 'sto scaricando il motore' : 'sto calcolando'), m.sanMigliore && onGioca && /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: "tasto",
-    onClick: () => setAcceso(!acceso)
-  }, acceso ? 'Spegni il motore' : 'Accendi il motore'), acceso && !finita && /*#__PURE__*/React.createElement("button", {
+    className: "tasto pieno piccolo",
+    onClick: () => onGioca(m.sanMigliore)
+  }, "Gioca ", m.sanMigliore), /*#__PURE__*/React.createElement("span", {
+    className: "spazio"
+  }), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: "tasto",
-    onClick: analizza,
-    disabled: calcolando
-  }, "Ricalcola")), acceso && profondita !== null && /*#__PURE__*/React.createElement("div", {
-    className: "campo"
-  }, /*#__PURE__*/React.createElement("label", {
-    htmlFor: "prof"
-  }, "Profondità ", profondita), /*#__PURE__*/React.createElement("input", {
-    id: "prof",
+    className: "tasto piccolo",
+    onClick: m.analizza,
+    disabled: m.calcolando || m.profondita === null
+  }, "Ricalcola"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tasto piccolo",
+    onClick: () => m.setAcceso(false)
+  }, "Spegni")), m.lineaSan.length > 1 && /*#__PURE__*/React.createElement("div", {
+    className: "dettaglio striscia-linea",
+    title: m.lineaSan.join(' ')
+  }, "Linea: ", /*#__PURE__*/React.createElement("b", null, m.lineaSan.join(' '))), /*#__PURE__*/React.createElement("div", {
+    className: "striscia-piede"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "spia"
+  }, /*#__PURE__*/React.createElement("i", {
+    className: m.tipo === 'stockfish' ? '' : m.tipo === null ? 'attesa' : 'locale'
+  }), m.tipo === 'stockfish' ? 'Stockfish nel browser' : m.tipo === null ? 'sto scaricando il motore' : 'motore interno di riserva', e && e.profondita ? ', profondità ' + e.profondita : ''), m.profondita !== null && /*#__PURE__*/React.createElement("label", null, "Profondità massima ", m.profondita, /*#__PURE__*/React.createElement("input", {
     type: "range",
     min: "1",
     max: Motore.profonditaMassima(),
-    value: profondita,
-    onChange: e => setProfondita(+e.target.value)
-  })), acceso && /*#__PURE__*/React.createElement("span", {
-    className: "spia"
-  }, /*#__PURE__*/React.createElement("i", {
-    className: tipo === 'stockfish' ? '' : tipo === null ? 'attesa' : 'locale'
-  }), tipo === 'stockfish' ? 'Stockfish, in esecuzione nel browser' : tipo === null ? 'sto scaricando il motore' : 'motore interno di riserva'));
+    value: m.profondita,
+    onChange: ev => m.setProfondita(+ev.target.value)
+  }))));
 }
 
 /* ================================================================
@@ -3327,7 +3397,8 @@ function useLinea(mosseOriginali) {
 function ScacchieraGiocabile({
   linea,
   orientamento,
-  interattiva
+  interattiva,
+  motore
 }) {
   const [selezione, setSelezione] = useState(null);
   const [promozione, setPromozione] = useState(null);
@@ -3377,9 +3448,15 @@ function ScacchieraGiocabile({
     }
     if (pezzo && pezzo.color === posizione.turn()) setSelezione(casa === selezione ? null : casa);else setSelezione(null);
   }
+  const conBarra = motore && motore.abilitato;
   return /*#__PURE__*/React.createElement("div", {
-    className: "scacchiera-guscio"
-  }, /*#__PURE__*/React.createElement(Scacchiera, {
+    className: 'scacchiera-guscio' + (conBarra ? ' con-barra' : '')
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "scacchiera-riga"
+  }, conBarra && /*#__PURE__*/React.createElement(BarraValutazione, {
+    motore: motore,
+    orientamento: orientamento
+  }), /*#__PURE__*/React.createElement(Scacchiera, {
     posizione: posizione,
     orientamento: orientamento,
     ultimaMossa: ultimaMossa,
@@ -3387,7 +3464,7 @@ function ScacchieraGiocabile({
     destinazioni: destinazioni,
     onCasa: suCasa,
     interattiva: interattiva && !posizione.game_over()
-  }), promozione && /*#__PURE__*/React.createElement("div", {
+  })), promozione && /*#__PURE__*/React.createElement("div", {
     className: "velo",
     onClick: () => setPromozione(null)
   }, /*#__PURE__*/React.createElement("div", {
@@ -3526,6 +3603,7 @@ function SezionePartite({
   const partita = DATI.partite.find(p => p.id === idPartita);
   const originali = useMemo(() => elencoMosse(partita.mosse), [partita]);
   const linea = useLinea(originali);
+  const motore = useMotore(linea.posizione.fen(), false);
   const [orientamento, setOrientamento] = useState('w');
   const [inArrivo, setInArrivo] = useState(false);
 
@@ -3593,10 +3671,14 @@ function SezionePartite({
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(ScacchieraGiocabile, {
     linea: linea,
     orientamento: orientamento,
-    interattiva: true
+    interattiva: true,
+    motore: motore
   }), /*#__PURE__*/React.createElement(Navigazione, {
     linea: linea,
     onGira: () => setOrientamento(orientamento === 'w' ? 'b' : 'w')
+  }), /*#__PURE__*/React.createElement(StrisciaMotore, {
+    motore: motore,
+    onGioca: san => linea.gioca(san)
   }), /*#__PURE__*/React.createElement(SelettoreTema, null), inArrivo && /*#__PURE__*/React.createElement("div", {
     className: "avviso"
   }, "Stai guardando il finale dell'", /*#__PURE__*/React.createElement("b", null, "Immortale"), ". Premi il tasto di inizio per rivederla dalla prima mossa."), inVariante && /*#__PURE__*/React.createElement("div", {
@@ -3613,18 +3695,18 @@ function SezionePartite({
     className: "nota"
   }, nota ? /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
     className: "etichetta"
-  }, "Mossa ", Math.ceil(linea.ply / 2), linea.ply % 2 ? '. ' : '… ', linea.mosse[linea.ply - 1]), nota) : linea.ply === 0 ? partita.intro : inVariante ? 'Sei fuori dalla partita storica. Il motore qui sotto ti dice se la tua mossa regge.' : 'Prosegui con le frecce o scegli una mossa dall\u2019elenco.')), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, "Mossa ", Math.ceil(linea.ply / 2), linea.ply % 2 ? '. ' : '… ', linea.mosse[linea.ply - 1]), nota) : linea.ply === 0 ? partita.intro : inVariante ? 'Sei fuori dalla partita storica. Il motore qui sotto ti dice se la tua mossa regge.' : 'Prosegui con le frecce o scegli una mossa dall\u2019elenco.')), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(StrisciaMotore, {
+    motore: motore,
+    onGioca: san => linea.gioca(san),
+    dove: "lato"
+  }), /*#__PURE__*/React.createElement("div", {
     className: "pannello"
   }, /*#__PURE__*/React.createElement("h3", null, "Mosse"), /*#__PURE__*/React.createElement(ListaMosse, {
     mosse: linea.mosse,
     ply: linea.ply,
     onVai: linea.setPly,
     divergenza: linea.divergenza
-  })), /*#__PURE__*/React.createElement(PannelloMotore, {
-    fen: linea.posizione.fen(),
-    automatico: false,
-    onGioca: san => linea.gioca(san)
-  }))))));
+  })))))));
 }
 
 /* ================================================================
@@ -3634,6 +3716,7 @@ function SezionePartite({
 const VUOTE = [];
 function SezioneAnalisi() {
   const linea = useLinea(VUOTE);
+  const motore = useMotore(linea.posizione.fen(), true);
   const [orientamento, setOrientamento] = useState('w');
   const [avversario, setAvversario] = useState('nessuno');
   const {
@@ -3680,7 +3763,8 @@ function SezioneAnalisi() {
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(ScacchieraGiocabile, {
     linea: linea,
     orientamento: orientamento,
-    interattiva: true
+    interattiva: true,
+    motore: motore
   }), /*#__PURE__*/React.createElement(Navigazione, {
     linea: linea,
     onGira: () => setOrientamento(orientamento === 'w' ? 'b' : 'w'),
@@ -3690,6 +3774,9 @@ function SezioneAnalisi() {
       onClick: linea.ricomincia,
       disabled: !mosse.length
     }, "Ricomincia")
+  }), /*#__PURE__*/React.createElement(StrisciaMotore, {
+    motore: motore,
+    onGioca: san => linea.gioca(san)
   }), /*#__PURE__*/React.createElement(SelettoreTema, null), esito && /*#__PURE__*/React.createElement("div", {
     className: "esito"
   }, esito), /*#__PURE__*/React.createElement("div", {
@@ -3711,10 +3798,10 @@ function SezioneAnalisi() {
     style: {
       marginTop: 14
     }
-  }, "Con le frecce della tastiera torni indietro e vai avanti nella tua stessa partita. Se muovi dopo essere tornato indietro, la linea riparte da lì.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PannelloMotore, {
-    fen: fen,
-    automatico: true,
-    onGioca: san => linea.gioca(san)
+  }, "Con le frecce della tastiera torni indietro e vai avanti nella tua stessa partita. Se muovi dopo essere tornato indietro, la linea riparte da lì.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(StrisciaMotore, {
+    motore: motore,
+    onGioca: san => linea.gioca(san),
+    dove: "lato"
   }), /*#__PURE__*/React.createElement("div", {
     className: "pannello"
   }, /*#__PURE__*/React.createElement("h3", null, "Mosse"), /*#__PURE__*/React.createElement(ListaMosse, {
@@ -3754,6 +3841,7 @@ function SezioneAperture() {
   const testo = mostraInsidia && apertura.insidia ? apertura.insidia.mosse : apertura.mosse;
   const originali = useMemo(() => elencoMosse(testo), [testo]);
   const linea = useLinea(originali);
+  const motore = useMotore(linea.posizione.fen(), false);
   const [orientamento, setOrientamento] = useState('w');
   useEffect(() => {
     linea.setPly(originali.length);
@@ -3805,10 +3893,14 @@ function SezioneAperture() {
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(ScacchieraGiocabile, {
     linea: linea,
     orientamento: orientamento,
-    interattiva: true
+    interattiva: true,
+    motore: motore
   }), /*#__PURE__*/React.createElement(Navigazione, {
     linea: linea,
     onGira: () => setOrientamento(orientamento === 'w' ? 'b' : 'w')
+  }), /*#__PURE__*/React.createElement(StrisciaMotore, {
+    motore: motore,
+    onGioca: san => linea.gioca(san)
   }), /*#__PURE__*/React.createElement(SelettoreTema, null), apertura.insidia && /*#__PURE__*/React.createElement("div", {
     className: "riga-tasti"
   }, /*#__PURE__*/React.createElement("button", {
@@ -3836,17 +3928,17 @@ function SezioneAperture() {
     type: "button",
     "aria-current": linea.ply === i + 1,
     onClick: () => linea.setPly(i + 1)
-  }, m))))), /*#__PURE__*/React.createElement("div", null, mostraInsidia && apertura.insidia ? /*#__PURE__*/React.createElement("div", {
+  }, m))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(StrisciaMotore, {
+    motore: motore,
+    onGioca: san => linea.gioca(san),
+    dove: "lato"
+  }), mostraInsidia && apertura.insidia ? /*#__PURE__*/React.createElement("div", {
     className: "pannello"
   }, /*#__PURE__*/React.createElement("h3", null, apertura.insidia.nome), /*#__PURE__*/React.createElement("p", null, apertura.insidia.testo)) : /*#__PURE__*/React.createElement("div", {
     className: "pannello"
   }, /*#__PURE__*/React.createElement("h3", null, "L’idea"), /*#__PURE__*/React.createElement("p", null, apertura.idea), /*#__PURE__*/React.createElement("dl", {
     className: "piani"
-  }, /*#__PURE__*/React.createElement("dt", null, "Piano del bianco"), /*#__PURE__*/React.createElement("dd", null, apertura.bianco), /*#__PURE__*/React.createElement("dt", null, "Piano del nero"), /*#__PURE__*/React.createElement("dd", null, apertura.nero))), /*#__PURE__*/React.createElement(PannelloMotore, {
-    fen: linea.posizione.fen(),
-    automatico: false,
-    onGioca: san => linea.gioca(san)
-  }))))));
+  }, /*#__PURE__*/React.createElement("dt", null, "Piano del bianco"), /*#__PURE__*/React.createElement("dd", null, apertura.bianco), /*#__PURE__*/React.createElement("dt", null, "Piano del nero"), /*#__PURE__*/React.createElement("dd", null, apertura.nero))))))));
 }
 
 /* ================================================================
@@ -4225,6 +4317,8 @@ function SezioneTattica() {
     ch.move(giusta);
     return ch;
   }, [mostrata, base, fenBase, giusta]);
+  // Il motore resta disattivato finché la soluzione non è sul tavolo.
+  const motore = useMotore(posizione.fen(), false, mostrata);
   const linea = {
     posizione,
     ply: mostrata ? 1 : 0,
@@ -4343,7 +4437,8 @@ function SezioneTattica() {
   }, h("div", null, h(ScacchieraGiocabile, {
     linea: linea,
     orientamento: lato,
-    interattiva: stato === 'attesa' || stato === 'sbagliato'
+    interattiva: stato === 'attesa' || stato === 'sbagliato',
+    motore: motore
   }), h("div", {
     className: "controlli"
   }, !mostrata && h("button", {
@@ -4360,7 +4455,9 @@ function SezioneTattica() {
     type: "button",
     className: "tasto pieno",
     onClick: prossimo
-  }, "Prossima posizione")), h(SelettoreTema, null), stato === 'risolto' && h("div", {
+  }, "Prossima posizione")), h(StrisciaMotore, {
+    motore: motore
+  }), h(SelettoreTema, null), stato === 'risolto' && h("div", {
     className: "avviso riuscito",
     role: "status"
   }, h("b", null, "Risolta."), " ", messaggio), stato === 'svelato' && h("div", {
@@ -4374,16 +4471,16 @@ function SezioneTattica() {
     className: "nota"
   }, mostrata ? h("span", null, h("span", {
     className: "etichetta"
-  }, "Mossa ", Math.ceil(momento.ply / 2), momento.ply % 2 ? '. ' : '\u2026 ', giusta), momento.spiegazione) : momento.domanda)), h("div", null, h("div", {
+  }, "Mossa ", Math.ceil(momento.ply / 2), momento.ply % 2 ? '. ' : '\u2026 ', giusta), momento.spiegazione) : momento.domanda)), h("div", null, h(StrisciaMotore, {
+    motore: motore,
+    dove: "lato"
+  }), h("div", {
     className: "pannello"
   }, h("h3", null, "La partita"), h("p", null, partita.occhiello), h("p", {
     className: "dettaglio"
   }, partita.apertura)), mostraAiuto && !mostrata && h("div", {
     className: "pannello"
-  }, h("h3", null, "Un aiuto"), h("p", null, momento.aiuto)), mostrata && h(PannelloMotore, {
-    fen: posizione.fen(),
-    automatico: false
-  }), h("div", {
+  }, h("h3", null, "Un aiuto"), h("p", null, momento.aiuto)), h("div", {
     className: "pannello"
   }, h("h3", null, "Come funziona"), h("p", null, "Muovi un pezzo sulla scacchiera. Se la tua mossa non è quella della partita, Stockfish la confronta con l\u2019originale: se vince lo stesso, vale come soluzione. Senza connessione il confronto non è disponibile e conta solo la mossa giocata.")))))));
 }
@@ -4595,6 +4692,7 @@ function SezioneStrategia() {
   const base = originali.length;
   const lato = useMemo(() => costruisci(originali).turn(), [originali]);
   const linea = useLinea(originali);
+  const motore = useMotore(linea.posizione.fen(), false);
   const [orientamento, setOrientamento] = useState(lato);
   useEffect(() => {
     linea.setPly(originali.length);
@@ -4674,7 +4772,8 @@ function SezioneStrategia() {
   }, h("div", null, h(ScacchieraGiocabile, {
     linea: linea,
     orientamento: orientamento,
-    interattiva: true
+    interattiva: true,
+    motore: motore
   }), h(Navigazione, {
     linea: linea,
     onGira: () => setOrientamento(orientamento === 'w' ? 'b' : 'w'),
@@ -4683,6 +4782,9 @@ function SezioneStrategia() {
       className: "tasto",
       onClick: tornaAllaPosizione
     }, "Torna alla posizione")
+  }), h(StrisciaMotore, {
+    motore: motore,
+    onGioca: san => linea.gioca(san)
   }), h(SelettoreTema, null), risolta && h("div", {
     className: "riga-tasti"
   }, h("button", {
@@ -4696,7 +4798,11 @@ function SezioneStrategia() {
     onClick: prossima
   }, "Prossima lezione")), h("div", {
     className: "nota"
-  }, nota)), h("div", null, h("div", {
+  }, nota)), h("div", null, h(StrisciaMotore, {
+    motore: motore,
+    onGioca: san => linea.gioca(san),
+    dove: "lato"
+  }), h("div", {
     className: "pannello"
   }, h("h3", null, "Scegli il piano"), h("p", null, lezione.domanda), h("div", {
     className: "scelte-piano"
@@ -4719,11 +4825,7 @@ function SezioneStrategia() {
     className: "pannello"
   }, h("h3", null, "I due piani"), h("dl", {
     className: "piani"
-  }, h("dt", null, "Piano del bianco"), h("dd", null, lezione.bianco), h("dt", null, "Piano del nero"), h("dd", null, lezione.nero))), h(PannelloMotore, {
-    fen: linea.posizione.fen(),
-    automatico: false,
-    onGioca: san => linea.gioca(san)
-  }))))));
+  }, h("dt", null, "Piano del bianco"), h("dd", null, lezione.bianco), h("dt", null, "Piano del nero"), h("dd", null, lezione.nero))))))));
 }
 
 /* ================================================================
