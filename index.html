@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Sessantaquattro — partite, analisi e aperture</title>
-<meta name="description" content="Le partite più famose della storia degli scacchi, una scacchiera per provare le mosse con un motore di analisi e una libreria di aperture.">
+<title>Sessantaquattro — partite, aperture, medio gioco e finali</title>
+<meta name="description" content="Le partite più famose della storia degli scacchi, una scacchiera con motore di analisi, una libreria di aperture e allenamenti su medio gioco e finali.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..700&family=Karla:ital,wght@0,300..700;1,300..600&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+Symbols+2&display=swap" rel="stylesheet">
@@ -298,6 +298,17 @@ dl.piani dd{margin:3px 0 0;font-size:15px;color:#DCD0BB}
 
 .piede{margin-top:60px;padding-top:22px;border-top:1px solid var(--linea);color:var(--smorzato);font-size:13.5px;max-width:70ch}
 .piede a{color:var(--ottone)}
+
+/* ---------- allenamenti ---------- */
+.avviso.riuscito{border-color:var(--verde);background:rgba(122,148,89,.13)}
+.avviso.riuscito b{color:#B5CC8E}
+.avviso.errore{border-color:var(--rosso);background:rgba(176,84,63,.12)}
+.avviso.errore b{color:#E39A86}
+.voce .fatto{color:var(--verde);font-family:var(--testo);font-size:15px}
+.lato > div + div .famiglia{margin-top:22px}
+.conteggio{font-family:var(--nota);font-size:12px;color:var(--smorzato);margin:0 0 14px}
+.mossa-finale{padding:2px 5px;color:var(--smorzato)}
+.mossa-finale.mia{color:var(--avorio)}
 
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -3548,7 +3559,7 @@ function SezionePartite({
     className: "vt"
   }, p.titolo), /*#__PURE__*/React.createElement("span", {
     className: "vs"
-  }, p.bianco.split(' ').slice(-1)[0], " – ", p.nero.split(' ').slice(-1)[0], ", ", p.anno))))), /*#__PURE__*/React.createElement("div", {
+  }, cognome(p.bianco), " – ", cognome(p.nero), ", ", p.anno))))), /*#__PURE__*/React.createElement("div", {
     className: "centro"
   }, /*#__PURE__*/React.createElement("div", {
     className: "intestazione"
@@ -3671,9 +3682,9 @@ function SezioneAnalisi() {
   }, /*#__PURE__*/React.createElement("option", {
     value: "nessuno"
   }, "nessuno: muovo io entrambi i colori"), /*#__PURE__*/React.createElement("option", {
-    value: "b"
+    value: "w"
   }, "con il bianco"), /*#__PURE__*/React.createElement("option", {
-    value: "n"
+    value: "b"
   }, "con il nero"))), /*#__PURE__*/React.createElement("p", {
     className: "dettaglio",
     style: {
@@ -3818,6 +3829,873 @@ function SezioneAperture() {
 }
 
 /* ================================================================
+   ALLENAMENTI: strumenti comuni a medio gioco e finali
+   ================================================================ */
+
+const h = React.createElement;
+function costruisciDaFen(fen, mosse) {
+  const ch = new Chess(fen);
+  for (const m of mosse) {
+    if (!ch.move(m)) break;
+  }
+  return ch;
+}
+function ultimaDi(ch) {
+  const storia = ch.history({
+    verbose: true
+  });
+  const u = storia[storia.length - 1];
+  return u ? {
+    from: u.from,
+    to: u.to
+  } : null;
+}
+function daUci(uci) {
+  return uci ? {
+    from: uci.slice(0, 2),
+    to: uci.slice(2, 4),
+    promotion: uci[4] || undefined
+  } : null;
+}
+function cognome(nome) {
+  return nome === 'Deep Blue' ? nome : nome.split(' ').slice(-1)[0];
+}
+function nomeColore(c) {
+  return c === 'w' ? 'il bianco' : 'il nero';
+}
+function senzaSegni(san) {
+  return (san || '').replace(/[+#!?]/g, '');
+}
+
+// Esercizi completati: restano nel browser anche dopo aver chiuso la pagina.
+const CHIAVE_FATTI = 'sessantaquattro:allenamenti';
+function leggiFatti() {
+  try {
+    return JSON.parse(localStorage.getItem(CHIAVE_FATTI) || '{}') || {};
+  } catch (e) {
+    return {};
+  }
+}
+function useFatti() {
+  const [fatti, setFatti] = useState(leggiFatti);
+  const segna = useCallback(id => {
+    setFatti(f => {
+      if (f[id]) return f;
+      const n = Object.assign({}, f, {
+        [id]: true
+      });
+      try {
+        localStorage.setItem(CHIAVE_FATTI, JSON.stringify(n));
+      } catch (e) {}
+      return n;
+    });
+  }, []);
+  return [fatti, segna];
+}
+
+// Mossa scelta dal motore (Stockfish o motore interno), nel formato di chess.js.
+function mossaDelMotore(fen) {
+  return Motore.analizza(fen, {
+    profondita: Motore.profonditaSuggerita(),
+    tempoMs: 1200
+  }).then(r => r ? r.san || daUci(r.migliore) : null);
+}
+
+/* ---------------- tablebase di Lichess ----------------
+   Per ogni posizione con al massimo sette pezzi conoscono il risultato
+   esatto e la mossa migliore. Servono a controllare le mosse nei finali
+   e a far giocare l'avversario senza errori. */
+
+const Tablebase = function () {
+  const cache = new Map();
+  function interroga(fen) {
+    const chiave = fen.split(' ').slice(0, 4).join(' ');
+    if (cache.has(chiave)) return cache.get(chiave);
+    const p = new Promise((risolvi, rifiuta) => {
+      const scadenza = setTimeout(() => rifiuta(new Error('tempo scaduto')), 7000);
+      fetch('https://tablebase.lichess.ovh/standard?fen=' + encodeURIComponent(fen)).then(r => {
+        if (!r.ok) throw new Error('tablebase ' + r.status);
+        return r.json();
+      }).then(d => {
+        clearTimeout(scadenza);
+        risolvi(d);
+      }, e => {
+        clearTimeout(scadenza);
+        rifiuta(e);
+      });
+    });
+    cache.set(chiave, p);
+    p.catch(() => cache.delete(chiave));
+    return p;
+  }
+  // Il risultato è sempre dal punto di vista di chi deve muovere.
+  function esito(categoria) {
+    if (categoria === 'win' || categoria === 'cursed-win' || categoria === 'maybe-win') return 'vince';
+    if (categoria === 'loss' || categoria === 'blessed-loss' || categoria === 'maybe-loss') return 'perde';
+    if (categoria === 'draw') return 'patta';
+    return null;
+  }
+  return {
+    interroga,
+    esito
+  };
+}();
+
+/* ================================================================
+   DATI: FINALI
+   Le posizioni di pedoni sono state verificate con un'analisi
+   completa di tutti i finali di re e pedone contro re.
+   ================================================================ */
+
+const FINALI = [{
+  id: 'donna',
+  famiglia: 'Matti di base',
+  nome: 'Donna e re contro re',
+  fen: '8/8/8/4k3/8/8/8/3QK3 w - - 0 1',
+  obiettivo: 'vinci',
+  traguardo: 'matto',
+  compito: 'Dai scacco matto.',
+  idea: 'La donna da sola non basta: il matto arriva sempre con l\u2019aiuto del re. Il metodo più semplice è usare la donna per chiudere il re nero in un recinto sempre più piccolo, finché non tocca il bordo, e solo allora avvicinare il re.',
+  aiuto: 'Metti la donna a un salto di cavallo dal re nero e seguilo così: ogni volta che si sposta, il recinto si stringe. Quando è sul bordo porta su il tuo re. Attento allo stallo: controlla sempre che al re nero resti almeno una casa.'
+}, {
+  id: 'torre',
+  famiglia: 'Matti di base',
+  nome: 'Torre e re contro re',
+  fen: '8/8/8/4k3/8/8/8/R3K3 w - - 0 1',
+  obiettivo: 'vinci',
+  traguardo: 'matto',
+  compito: 'Dai scacco matto.',
+  idea: 'La torre taglia la scacchiera e spinge il re nero verso il bordo una traversa alla volta. Il segreto è l\u2019opposizione: quando i due re si fronteggiano con una casa in mezzo, lo scacco di torre costringe il re nero ad arretrare.',
+  aiuto: 'Porta il tuo re davanti a quello nero, con una casa in mezzo, e solo allora dai scacco con la torre. Se il re nero si sposta di lato per evitare l\u2019opposizione, fai una mossa d\u2019attesa con la torre lungo la stessa traversa.'
+}, {
+  id: 'quadrato',
+  famiglia: 'Finali di pedoni',
+  nome: 'La regola del quadrato',
+  fen: '8/8/8/5k2/P7/8/8/7K b - - 0 1',
+  obiettivo: 'patta',
+  traguardo: 'tenere',
+  tenere: 12,
+  compito: 'Il re bianco è troppo lontano per aiutare: ferma il pedone da solo.',
+  idea: 'Immagina un quadrato che ha per lato la strada che il pedone deve ancora fare fino alla promozione. Se il re riesce a entrarci con la sua mossa, raggiunge il pedone in tempo; se resta fuori, il pedone promuove. È più veloce che contare le mosse una per una.',
+  aiuto: 'Il pedone in a4 ha quattro case davanti a sé. Il quadrato ha gli angoli in a4, e4, e8 e a8: con questa mossa il tuo re deve entrarci.'
+}, {
+  id: 'opposizione',
+  famiglia: 'Finali di pedoni',
+  nome: 'L\u2019opposizione',
+  fen: '8/4k3/8/3K4/4P3/8/8/8 w - - 0 1',
+  obiettivo: 'vinci',
+  traguardo: 'promozione',
+  compito: 'Porta il pedone a promozione.',
+  idea: 'Quando due re si fronteggiano con una sola casa in mezzo, chi deve muovere è costretto a cedere il passo: ha l\u2019opposizione chi non deve muovere. In re e pedone contro re vince chi riesce a mettere il proprio re davanti al pedone e a prendersi l\u2019opposizione. Il pedone si spinge dopo, mai prima.',
+  aiuto: 'Metti il re di fronte a quello nero con una casa in mezzo: toccherà al nero cedere. Una sola mossa vince, tutte le altre pattano.'
+}, {
+  id: 'pedoneditorre',
+  famiglia: 'Finali di pedoni',
+  nome: 'Il pedone di torre',
+  fen: '8/8/4k3/PK6/8/8/8/8 b - - 0 1',
+  obiettivo: 'patta',
+  traguardo: 'tenere',
+  tenere: 12,
+  compito: 'Il bianco ha un pedone in più: salva la patta.',
+  idea: 'Il pedone di torre è l\u2019eccezione a quasi tutte le regole dei finali di pedoni. Se il re che difende raggiunge l\u2019angolo davanti al pedone, o la casa accanto sulla colonna c, non può più essere scacciato: il bianco può al massimo metterlo in stallo.',
+  aiuto: 'Corri verso c8. C\u2019è una sola mossa che ci arriva in tempo.'
+}, {
+  id: 'lucena',
+  famiglia: 'Finali di torre',
+  nome: 'Posizione di Lucena',
+  fen: '1K6/1P1k4/8/8/8/8/r7/2R5 w - - 0 1',
+  obiettivo: 'vinci',
+  traguardo: 'promozione',
+  compito: 'Il tuo re è chiuso davanti al pedone: liberalo e promuovi.',
+  idea: 'È la posizione vincente più importante dei finali di torre. Il re bianco non può uscire da b8 senza subire una serie infinita di scacchi dalla torre nera. La soluzione si chiama costruire il ponte: la torre bianca va sulla quarta traversa, così quando il re esce potrà ripararsi mettendola in mezzo.',
+  aiuto: 'Prima allontana ancora il re nero con uno scacco sulla colonna d. Poi porta la torre in quarta traversa. Solo a quel punto fai uscire il re, e quando arrivano gli scacchi interponi la torre.'
+}, {
+  id: 'philidor',
+  famiglia: 'Finali di torre',
+  nome: 'Posizione di Philidor',
+  fen: '4k3/7R/8/4PK2/8/8/8/r7 b - - 0 1',
+  obiettivo: 'patta',
+  traguardo: 'tenere',
+  tenere: 15,
+  compito: 'Il bianco ha un pedone in più: tieni la patta.',
+  idea: 'La difesa di Philidor: con il re davanti al pedone, la torre si piazza sulla sesta traversa e impedisce al re bianco di avanzare. Quando il bianco spinge il pedone in sesta, il suo re perde ogni riparo: allora la torre scende in fondo alla scacchiera e dà scacco da dietro, senza fine.',
+  aiuto: 'Porta la torre sulla sesta traversa e tienila lì finché il pedone non ci arriva. Appena il pedone avanza, torna in prima traversa e comincia a dare scacco.'
+}];
+
+/* ================================================================
+   DATI: MEDIO GIOCO
+   Ogni momento chiave è una posizione presa dalle partite della
+   sezione Partite: ply indica la semimossa da trovare.
+   ================================================================ */
+
+const MOMENTI = [{
+  id: 'm-opera-matto',
+  famiglia: 'Matti in due',
+  partita: 'opera',
+  ply: 31,
+  titolo: 'Il matto dell\u2019Opera',
+  domanda: 'Morphy ha già dato un cavallo e una torre. Il re nero è chiuso in e8 e la torre bianca controlla la colonna d. C\u2019è matto in due mosse.',
+  aiuto: 'Il cavallo in d7 fa due lavori: tappa la colonna d e difende b8. Dagli un motivo per lasciare d7.',
+  spiegazione: 'Qb8+! La donna si offre su una casa difesa solo dal cavallo. Dopo Nxb8 la colonna d è libera e Rd8 è matto: l\u2019alfiere in g5 copre e7 e la torre fa tutto il resto.'
+}, {
+  id: 'm-immortale-matto',
+  famiglia: 'Matti in due',
+  partita: 'immortale',
+  ply: 43,
+  titolo: 'L\u2019ultimo sacrificio',
+  domanda: 'Il nero ha due torri e un alfiere in più, ma il suo re è in d8 circondato da donna, alfiere e cavalli bianchi. C\u2019è matto in due mosse.',
+  aiuto: 'Il cavallo in g8 difende la casa e7. Offrigli qualcosa da prendere.',
+  spiegazione: 'Qf6+! Il nero deve prendere con il cavallo, che così abbandona e7. Be7 è matto, dato con i soli pezzi minori mentre donna e torri bianche sono sparite dalla scacchiera.'
+}, {
+  id: 'm-deepblue',
+  famiglia: 'Sacrifici d\u2019attacco',
+  partita: 'deepblue',
+  ply: 15,
+  titolo: 'Il sacrificio in e6',
+  domanda: 'Il nero ha appena giocato h6 per cacciare il cavallo da g5. Il suo re è ancora in e8 e non ha arroccato.',
+  aiuto: 'Il cavallo non deve ritirarsi. Guarda la casa e6: chi la difende davvero?',
+  spiegazione: 'Nxe6! Il cavallo si sacrifica sul pedone e il re nero perde per sempre l\u2019arrocco. In partita il nero giocò Qe7, il bianco arroccò con calma e dopo fxe6 lo scacco Bg6+ spinse il re in d8, lontano dalle torri. Kasparov abbandonò undici mosse dopo.'
+}, {
+  id: 'm-opera-linee',
+  famiglia: 'Sacrifici d\u2019attacco',
+  partita: 'opera',
+  ply: 19,
+  titolo: 'Aprire le linee',
+  domanda: 'Il nero ha appena spinto b5 per attaccare l\u2019alfiere, invece di sviluppare i pezzi. Il bianco ha tutto in gioco, il nero quasi niente.',
+  aiuto: 'Non ritirare l\u2019alfiere. Un pezzo dato via può aprire la strada verso il re nero, che è ancora in e8.',
+  spiegazione: 'Nxb5! Morphy dà il cavallo per due pedoni e apre la diagonale verso e8. Dopo cxb5 e Bxb5+ il nero mise il cavallo in d7, dove restò inchiodato fino al matto.'
+}, {
+  id: 'm-sempreverde-torre',
+  famiglia: 'Sacrifici d\u2019attacco',
+  partita: 'sempreverde',
+  ply: 39,
+  titolo: 'Tutto con scacco',
+  domanda: 'Il nero ha appena preso il cavallo in f3 e minaccia matto in g2. Da qui ogni mossa del bianco deve essere uno scacco.',
+  aiuto: 'Comincia eliminando il cavallo in e7, l\u2019unico difensore vicino al re nero.',
+  spiegazione: 'Rxe7+! Il cavallo difensore sparisce. Dopo Nxe7 il re nero è di nuovo scoperto e il bianco ha pronto il colpo successivo, sempre con scacco.'
+}, {
+  id: 'm-sempreverde-donna',
+  famiglia: 'Sacrifici d\u2019attacco',
+  partita: 'sempreverde',
+  ply: 41,
+  titolo: 'La Sempreverde',
+  domanda: 'Dopo Rxe7+ Nxe7 il nero minaccia ancora matto in g2. Il bianco deve continuare a dare scacco fino alla fine.',
+  aiuto: 'La donna vede d7. Attirare il re in d7 vuol dire metterlo sulla colonna della torre.',
+  spiegazione: 'Qxd7+!! Il nero prende con il re, che finisce sulla colonna d. Bf5+ è scacco doppio di alfiere e torre, poi Bd7+ e Bxe7 matto. Il nero aveva ancora donna, torre e alfiere.'
+}, {
+  id: 'm-steinitz',
+  famiglia: 'Sacrifici d\u2019attacco',
+  partita: 'steinitz',
+  ply: 43,
+  titolo: 'La torre intoccabile',
+  domanda: 'Il cavallo in g5 ha appena dato scacco e il re nero è tornato in e8. La torre in e1 guarda lungo la colonna e.',
+  aiuto: 'Il cavallo in e7 sembra ben difeso, dal re e dalla donna. Ma se uno dei due lo riprende, che cosa lascia scoperto?',
+  spiegazione: 'Rxe7+! La torre entra in settima e ci resta: prenderla con la donna o con il re apre le linee ai pezzi bianchi. Il re nero fu costretto a scappare e la torre continuò a dare scacco lungo la settima traversa, sempre intoccabile.'
+}, {
+  id: 'm-kasparov',
+  famiglia: 'Sacrifici d\u2019attacco',
+  partita: 'kasparov99',
+  ply: 47,
+  titolo: 'Il sacrificio di torre',
+  domanda: 'Il nero ha appena offerto il cambio delle donne con Qd6. Il suo re è in a7 e il cavallo bianco in a5 è già vicinissimo.',
+  aiuto: 'Il cambio delle donne spegnerebbe l\u2019attacco. Guarda il pedone in d4: se sparisce, la torre in e1 arriva in settima.',
+  spiegazione: 'Rxd4!! Dopo cxd4 arriva Re7+ e il re nero viene trascinato fuori dal suo riparo: b6, a5, a4 e infine a3, in mezzo ai pezzi bianchi. Kasparov raccontò di non averlo calcolato fino in fondo: aveva capito che l\u2019attacco doveva esserci.'
+}, {
+  id: 'm-fischer72',
+  famiglia: 'Sacrifici d\u2019attacco',
+  partita: 'fischer72',
+  ply: 75,
+  titolo: 'Quando tutto è pronto',
+  domanda: 'Fischer ha manovrato per trenta mosse. Il pedone e6 è passato, le torri sono raddoppiate sulla colonna f, la donna punta sul re. Il nero ha appena portato il cavallo in f6 per difendersi.',
+  aiuto: 'Il cavallo in f6 è l\u2019unico pezzo che protegge il re nero. Quanto vale, rispetto a una torre?',
+  spiegazione: 'Rxf6! La qualità in cambio del difensore. Dopo gxf6 anche l\u2019altra torre prende in f6 e il re nero resta nudo davanti a donna, torre, alfiere e al pedone e6. Spassky abbandonò tre mosse dopo e si alzò ad applaudire.'
+}, {
+  id: 'm-levitsky',
+  famiglia: 'Deviazioni',
+  partita: 'levitsky',
+  ply: 46,
+  titolo: 'La donna in presa tre volte',
+  domanda: 'Il bianco ha appena attaccato la donna nera con la torre in c5, convinto di aver fermato l\u2019attacco.',
+  aiuto: 'Cerca una casa per la donna dove tre pezzi bianchi possono prenderla, ma nessuno di loro può permetterselo.',
+  spiegazione: 'Qg3!! La donna si offre al pedone h2, al pedone f2 e alla donna bianca. Se hxg3, Ne2 è matto. Se fxg3, Ne2+ e poi Rxf1 matto. Se Qxg3, Ne2+ e il cavallo riprende la donna con scacco, lasciando il nero con un pezzo in più. Levitsky abbandonò.'
+}, {
+  id: 'm-fischer56',
+  famiglia: 'Deviazioni',
+  partita: 'fischer56',
+  ply: 34,
+  titolo: 'Lasciare la donna',
+  domanda: 'L\u2019alfiere in c5 attacca la donna nera. Una ritirata sembra ovvia, ma il re bianco è in f1 e non ha arroccato.',
+  aiuto: 'Non salvare la donna. Guarda che cosa possono fare i due alfieri e il cavallo contro il re bianco.',
+  spiegazione: 'Be6!! Fischer lascia prendere la donna. Dopo Bxb6 arriva Bxc4+ e il cavallo comincia un mulinello di scacchi che raccoglie materiale a ogni giro, fino alla torre in d1. Alla fine il nero ha torre, due alfieri e cavallo contro la donna, e vince.'
+}, {
+  id: 'm-botvinnik',
+  famiglia: 'Deviazioni',
+  partita: 'botvinnik',
+  ply: 59,
+  titolo: 'Via la donna dalla difesa',
+  domanda: 'Il pedone bianco in e6 è a due passi dalla promozione. La donna nera in e7 lo blocca e protegge anche il proprio re.',
+  aiuto: 'La donna nera ha troppi compiti. Offrile qualcosa da prendere lontano da e7.',
+  spiegazione: 'Ba3! L\u2019alfiere si offre per allontanare la donna nera. Dopo Qxa3 arriva Nh5+: gxh5 apre il re, poi Qg5+ e Qxf6+, e il pedone arriva in e7. Il nero può solo dare scacchi, e quando finiscono il pedone promuove.'
+}, {
+  id: 'm-immortale-quieta',
+  famiglia: 'Mosse tranquille',
+  partita: 'immortale',
+  ply: 35,
+  titolo: 'La mossa silenziosa',
+  domanda: 'Anderssen ha già regalato un alfiere e ora entrambe le sue torri sono in presa: quella in a1 dalla donna nera, quella in g1 dall\u2019alfiere.',
+  aiuto: 'Nessuno scacco e nessuna difesa. Guarda la casa e7: è l\u2019unica via di fuga del re nero.',
+  spiegazione: 'Bd6!! L\u2019alfiere si mette in presa e lascia cadere tutte e due le torri. Non minaccia niente di immediato: chiude la casa e7 e prepara e5, Nxg7+ e Be7. Il nero prese le torri e ricevette matto cinque mosse dopo.'
+}];
+
+/* ================================================================
+   SEZIONE: MEDIO GIOCO
+   ================================================================ */
+
+// Valutazione dal punto di vista di chi muove, in centesimi di pedone.
+function punteggioPer(r, lato) {
+  if (!r) return 0;
+  let v;
+  if (r.matto !== null && r.matto !== undefined) v = r.matto > 0 ? 100000 - r.matto * 100 : -100000 - r.matto * 100;else v = r.cp || 0;
+  return lato === 'w' ? v : -v;
+}
+function descriviPunteggio(p) {
+  if (p >= 90000) return 'matto in ' + Math.round((100000 - p) / 100);
+  if (p <= -90000) return 'subisci matto in ' + Math.round((100000 + p) / 100);
+  const v = p / 100;
+  return (v > 0 ? '+' : v < 0 ? '\u2212' : '') + Math.abs(v).toFixed(1);
+}
+function valutaDopo(fen, mossa, lato) {
+  const ch = new Chess(fen);
+  ch.move(mossa);
+  if (ch.in_checkmate()) return Promise.resolve(100000 - 100);
+  if (ch.game_over()) return Promise.resolve(0);
+  return Motore.analizza(ch.fen(), {
+    profondita: Math.min(Motore.profonditaSuggerita(), 14),
+    tempoMs: 1600
+  }).then(r => punteggioPer(r, lato));
+}
+function SezioneMedioGioco() {
+  const [id, setId] = useState(MOMENTI[0].id);
+  const [stato, setStato] = useState('attesa'); // attesa | valuto | sbagliato | risolto | svelato
+  const [messaggio, setMessaggio] = useState(null);
+  const [tentativi, setTentativi] = useState(0);
+  const [mostraAiuto, setMostraAiuto] = useState(false);
+  const [fatti, segna] = useFatti();
+  const generazione = useRef(0);
+  const indice = MOMENTI.findIndex(m => m.id === id);
+  const momento = MOMENTI[indice];
+  const partita = DATI.partite.find(p => p.id === momento.partita);
+  const tutte = useMemo(() => elencoMosse(partita.mosse), [partita]);
+  const base = useMemo(() => costruisci(tutte.slice(0, momento.ply - 1)), [tutte, momento]);
+  const fenBase = base.fen();
+  const giusta = tutte[momento.ply - 1];
+  const lato = base.turn();
+  useEffect(() => {
+    generazione.current++;
+    setStato('attesa');
+    setMessaggio(null);
+    setTentativi(0);
+    setMostraAiuto(false);
+  }, [id]);
+  const mostrata = stato === 'risolto' || stato === 'svelato';
+  const posizione = useMemo(() => {
+    if (!mostrata) return base;
+    const ch = new Chess(fenBase);
+    ch.move(giusta);
+    return ch;
+  }, [mostrata, base, fenBase, giusta]);
+  const linea = {
+    posizione,
+    ply: mostrata ? 1 : 0,
+    ultimaMossa: mostrata ? ultimaDi(posizione) : null,
+    gioca
+  };
+  function gioca(m) {
+    if (stato !== 'attesa' && stato !== 'sbagliato') return false;
+    const ch = new Chess(fenBase);
+    const fatta = ch.move(m);
+    if (!fatta) return false;
+    if (senzaSegni(fatta.san) === senzaSegni(giusta)) {
+      setStato('risolto');
+      setMessaggio(tentativi === 0 ? 'Esatto, al primo colpo.' : 'Esatto.');
+      segna(momento.id);
+      return true;
+    }
+    const n = tentativi + 1;
+    setTentativi(n);
+    if (ch.in_checkmate()) {
+      setStato('risolto');
+      setMessaggio(fatta.san + ' è scacco matto: meglio ancora della mossa giocata in partita, che era ' + giusta + '.');
+      segna(momento.id);
+      return true;
+    }
+    const mia = ++generazione.current;
+    setStato('valuto');
+    setMessaggio('Hai giocato ' + fatta.san + '. Non è la mossa della partita: il motore la sta confrontando.');
+    Motore.inizializza().then(tipo => {
+      if (generazione.current !== mia) return null;
+      // Il motore interno calcola troppo poco per giudicare un sacrificio.
+      if (tipo !== 'stockfish') return 'nessun confronto';
+      return valutaDopo(fenBase, fatta.san, lato).then(tua => valutaDopo(fenBase, giusta, lato).then(loro => [tua, loro]));
+    }).then(r => {
+      if (generazione.current !== mia || r === null) return;
+      if (r === 'nessun confronto') {
+        setStato('sbagliato');
+        setMessaggio('Hai giocato ' + fatta.san + ': non è la mossa della partita. Riprova.');
+        return;
+      }
+      const [tua, loro] = r;
+      if (tua >= loro - 50 || tua >= 400 && loro >= 400) {
+        setStato('risolto');
+        setMessaggio('Hai giocato ' + fatta.san + ': in partita fu scelta ' + giusta + ', ma il motore dà anche la tua come vincente (' + descriviPunteggio(tua) + ').');
+        segna(momento.id);
+        return;
+      }
+      setStato('sbagliato');
+      setMessaggio('Hai giocato ' + fatta.san + '. Il motore la valuta ' + descriviPunteggio(tua) + ' per te, la mossa giusta ' + descriviPunteggio(loro) + '. Riprova.');
+    }).catch(() => {
+      if (generazione.current !== mia) return;
+      setStato('sbagliato');
+      setMessaggio('Hai giocato ' + fatta.san + ': non è la mossa della partita. Riprova.');
+    });
+    return true;
+  }
+  function svela() {
+    generazione.current++;
+    setStato('svelato');
+    setMessaggio(null);
+  }
+  function prossimo() {
+    const dopo = MOMENTI.slice(indice + 1).concat(MOMENTI.slice(0, indice + 1));
+    const nuovo = dopo.find(m => !fatti[m.id] && m.id !== id) || dopo[0];
+    setId(nuovo.id);
+  }
+  const famiglie = [];
+  MOMENTI.forEach(m => {
+    if (!famiglie.length || famiglie[famiglie.length - 1].nome !== m.famiglia) famiglie.push({
+      nome: m.famiglia,
+      voci: []
+    });
+    famiglie[famiglie.length - 1].voci.push(m);
+  });
+  const risolti = MOMENTI.filter(m => fatti[m.id]).length;
+  return h("div", {
+    className: "sezione"
+  }, h("div", {
+    className: "colonna-stretta"
+  }, h("div", {
+    className: "lato"
+  }, h("p", {
+    className: "conteggio"
+  }, risolti, " su ", MOMENTI.length, " risolte"), famiglie.map(f => h("div", {
+    key: f.nome
+  }, h("div", {
+    className: "famiglia"
+  }, f.nome), h("div", {
+    className: "elenco"
+  }, f.voci.map(m => {
+    const p = DATI.partite.find(x => x.id === m.partita);
+    return h("button", {
+      key: m.id,
+      type: "button",
+      className: "voce",
+      "aria-current": m.id === id,
+      onClick: () => setId(m.id)
+    }, h("span", {
+      className: "vt"
+    }, m.titolo, fatti[m.id] && h("span", {
+      className: "fatto",
+      "aria-label": "risolta"
+    }, " \u2713")), h("span", {
+      className: "vs"
+    }, cognome(p.bianco), " \u2013 ", cognome(p.nero), ", ", p.anno));
+  }))))), h("div", {
+    className: "centro"
+  }, h("div", {
+    className: "intestazione"
+  }, h("h2", null, momento.titolo), h("p", {
+    className: "giocatori"
+  }, h("b", null, partita.bianco), " \u2013 ", h("b", null, partita.nero), " \xA0\xB7\xA0 ", partita.luogo, ", ", partita.anno), h("p", {
+    className: "occhiello"
+  }, "Muove ", nomeColore(lato), ". Trova la mossa giocata in partita.")), h("div", {
+    className: "tavola"
+  }, h("div", null, h(ScacchieraGiocabile, {
+    linea: linea,
+    orientamento: lato,
+    interattiva: stato === 'attesa' || stato === 'sbagliato'
+  }), h("div", {
+    className: "controlli"
+  }, !mostrata && h("button", {
+    type: "button",
+    className: "tasto",
+    onClick: () => setMostraAiuto(true),
+    disabled: mostraAiuto
+  }, "Dammi un aiuto"), !mostrata && h("button", {
+    type: "button",
+    className: "tasto",
+    onClick: svela,
+    disabled: stato === 'valuto'
+  }, "Mostra la soluzione"), mostrata && h("button", {
+    type: "button",
+    className: "tasto pieno",
+    onClick: prossimo
+  }, "Prossima posizione")), h(SelettoreTema, null), stato === 'risolto' && h("div", {
+    className: "avviso riuscito",
+    role: "status"
+  }, h("b", null, "Risolta."), " ", messaggio), stato === 'svelato' && h("div", {
+    className: "avviso"
+  }, "La mossa della partita era ", h("b", null, giusta), "."), (stato === 'sbagliato' || stato === 'valuto') && h("div", {
+    className: 'avviso' + (stato === 'sbagliato' ? ' errore' : ''),
+    role: "status"
+  }, messaggio), tentativi > 0 && !mostrata && h("div", {
+    className: "esito"
+  }, "Tentativi: ", tentativi), h("div", {
+    className: "nota"
+  }, mostrata ? h("span", null, h("span", {
+    className: "etichetta"
+  }, "Mossa ", Math.ceil(momento.ply / 2), momento.ply % 2 ? '. ' : '\u2026 ', giusta), momento.spiegazione) : momento.domanda)), h("div", null, h("div", {
+    className: "pannello"
+  }, h("h3", null, "La partita"), h("p", null, partita.occhiello), h("p", {
+    className: "dettaglio"
+  }, partita.apertura)), mostraAiuto && !mostrata && h("div", {
+    className: "pannello"
+  }, h("h3", null, "Un aiuto"), h("p", null, momento.aiuto)), mostrata && h(PannelloMotore, {
+    fen: posizione.fen(),
+    automatico: false
+  }), h("div", {
+    className: "pannello"
+  }, h("h3", null, "Come funziona"), h("p", null, "Muovi un pezzo sulla scacchiera. Se la tua mossa non è quella della partita, Stockfish la confronta con l\u2019originale: se vince lo stesso, vale come soluzione. Senza connessione il confronto non è disponibile e conta solo la mossa giocata.")))))));
+}
+
+/* ================================================================
+   SEZIONE: FINALI
+   ================================================================ */
+
+function SezioneFinali() {
+  const [id, setId] = useState(FINALI[0].id);
+  const [mosse, setMosse] = useState([]);
+  const [stato, setStato] = useState('gioco'); // gioco | controllo | errore | riuscito | fallito
+  const [messaggio, setMessaggio] = useState(null);
+  const [compromessa, setCompromessa] = useState(false);
+  const [verifica, setVerifica] = useState(null); // null: non ancora provata
+  const [pensa, setPensa] = useState(false);
+  const [mostraAiuto, setMostraAiuto] = useState(false);
+  const [consiglio, setConsiglio] = useState(null);
+  const [fatti, segna] = useFatti();
+  const generazione = useRef(0);
+  const indice = FINALI.findIndex(f => f.id === id);
+  const finale = FINALI[indice];
+  const lato = useMemo(() => new Chess(finale.fen).turn(), [finale]);
+  const avversario = lato === 'w' ? 'b' : 'w';
+  const posizione = useMemo(() => costruisciDaFen(finale.fen, mosse), [finale, mosse]);
+  const fen = posizione.fen();
+  const mieMosse = Math.ceil(mosse.length / 2);
+  function azzera() {
+    generazione.current++;
+    setMosse([]);
+    setStato('gioco');
+    setMessaggio(null);
+    setCompromessa(false);
+    setPensa(false);
+    setConsiglio(null);
+  }
+  useEffect(() => {
+    azzera();
+    setMostraAiuto(false);
+    // eslint-disable-next-line
+  }, [id]);
+  function riuscito(testo) {
+    setStato('riuscito');
+    setMessaggio(testo);
+    segna(finale.id);
+  }
+  function fallito(testo) {
+    setStato('fallito');
+    setMessaggio(testo);
+  }
+
+  // Controlla se la partita è finita. Restituisce true se lo è.
+  function concludi(ch) {
+    if (!ch.game_over()) return false;
+    if (ch.in_checkmate()) {
+      if (ch.turn() === avversario) riuscito('Scacco matto in ' + Math.ceil(ch.history().length / 2) + ' mosse.');else fallito('Hai ricevuto scacco matto.');
+      return true;
+    }
+    const motivo = descriviEsito(ch) || 'Patta.';
+    if (finale.obiettivo === 'patta' && !compromessa) riuscito(motivo + ' Obiettivo raggiunto.');else fallito(motivo + ' La vittoria è sfumata.');
+    return true;
+  }
+
+  // Risposta dell'avversario: tablebase se raggiungibili, altrimenti il motore.
+  useEffect(() => {
+    if (stato !== 'gioco') return;
+    if (posizione.turn() === lato || posizione.game_over()) return;
+    const mia = ++generazione.current;
+    setPensa(true);
+    const attesa = setTimeout(() => {
+      Tablebase.interroga(fen).then(d => {
+        setVerifica(true);
+        const m = d.moves && d.moves[0];
+        if (!m) throw new Error('nessuna mossa');
+        return daUci(m.uci);
+      }).catch(() => {
+        setVerifica(false);
+        return mossaDelMotore(fen);
+      }).then(m => {
+        if (generazione.current !== mia) return;
+        setPensa(false);
+        const ch = new Chess(fen);
+        const fatta = m && ch.move(m);
+        if (!fatta) return;
+        const nuove = mosse.concat([fatta.san]);
+        setMosse(nuove);
+        if (concludi(ch)) return;
+        if (finale.traguardo === 'tenere' && !compromessa && nuove.length / 2 >= finale.tenere) {
+          riuscito('Hai tenuto per ' + finale.tenere + ' mosse e la posizione è ancora patta. Obiettivo raggiunto.');
+        }
+      }).catch(() => {
+        if (generazione.current === mia) setPensa(false);
+      });
+    }, 450);
+    return () => clearTimeout(attesa);
+    // eslint-disable-next-line
+  }, [fen, stato]);
+  function gioca(m) {
+    if (stato !== 'gioco' || pensa || posizione.turn() !== lato) return false;
+    const ch = new Chess(fen);
+    const fatta = ch.move(m);
+    if (!fatta) return false;
+    setMosse(mosse.concat([fatta.san]));
+    setConsiglio(null);
+    if (concludi(ch)) return true;
+    if (compromessa) return true;
+    const mia = ++generazione.current;
+    setStato('controllo');
+    Tablebase.interroga(ch.fen()).then(d => {
+      if (generazione.current !== mia) return;
+      setVerifica(true);
+      const perLui = Tablebase.esito(d.category);
+      let sbagliata = false;
+      if (perLui !== null) sbagliata = finale.obiettivo === 'vinci' ? perLui !== 'perde' : perLui === 'vince';
+      if (sbagliata) {
+        setStato('errore');
+        if (finale.obiettivo === 'vinci') setMessaggio(perLui === 'patta' ? 'Con ' + fatta.san + ' la vittoria sfuma: adesso la posizione è patta.' : 'Con ' + fatta.san + ' la posizione diventa persa.');else setMessaggio('Con ' + fatta.san + ' la patta sfuma: adesso ' + nomeColore(avversario) + ' vince.');
+        return;
+      }
+      if (finale.traguardo === 'promozione' && fatta.promotion) {
+        riuscito('Pedone promosso, e la posizione resta vinta. Obiettivo raggiunto.');
+        return;
+      }
+      setStato('gioco');
+    }).catch(() => {
+      if (generazione.current !== mia) return;
+      setVerifica(false);
+      if (finale.traguardo === 'promozione' && fatta.promotion) {
+        riuscito('Pedone promosso. Obiettivo raggiunto.');
+        return;
+      }
+      setStato('gioco');
+    });
+    return true;
+  }
+  function ritira() {
+    generazione.current++;
+    setMosse(mosse.slice(0, -1));
+    setStato('gioco');
+    setMessaggio(null);
+  }
+  function continua() {
+    setCompromessa(true);
+    setStato('gioco');
+    setMessaggio(null);
+  }
+  function indietro() {
+    generazione.current++;
+    setPensa(false);
+    const togli = posizione.turn() === lato ? 2 : 1;
+    setMosse(mosse.slice(0, Math.max(0, mosse.length - togli)));
+    setStato('gioco');
+    setMessaggio(null);
+    setConsiglio(null);
+  }
+  function chiediMossa() {
+    const mia = generazione.current;
+    setConsiglio('\u2026');
+    Tablebase.interroga(fen).then(d => {
+      const m = d.moves && d.moves[0];
+      if (!m) throw new Error('nessuna mossa');
+      return m.san;
+    }).catch(() => mossaDelMotore(fen).then(m => {
+      if (!m) return null;
+      const ch = new Chess(fen);
+      const fatta = ch.move(m);
+      return fatta ? fatta.san : null;
+    })).then(san => {
+      if (generazione.current === mia) setConsiglio(san || null);
+    }).catch(() => setConsiglio(null));
+  }
+  function prossimo() {
+    const dopo = FINALI.slice(indice + 1).concat(FINALI.slice(0, indice + 1));
+    const nuovo = dopo.find(f => !fatti[f.id] && f.id !== id) || dopo[0];
+    setId(nuovo.id);
+  }
+  const linea = {
+    posizione,
+    ply: mosse.length,
+    ultimaMossa: mosse.length ? ultimaDi(posizione) : null,
+    gioca
+  };
+  const famiglie = [];
+  FINALI.forEach(f => {
+    if (!famiglie.length || famiglie[famiglie.length - 1].nome !== f.famiglia) famiglie.push({
+      nome: f.famiglia,
+      voci: []
+    });
+    famiglie[famiglie.length - 1].voci.push(f);
+  });
+  const completati = FINALI.filter(f => fatti[f.id]).length;
+  const tuoTurno = stato === 'gioco' && !pensa && posizione.turn() === lato && !posizione.game_over();
+  const obiettivo = finale.obiettivo === 'vinci' ? 'vincere' : 'pattare';
+  const scacco = stato === 'gioco' && descriviEsito(posizione);
+  return h("div", {
+    className: "sezione"
+  }, h("div", {
+    className: "colonna-stretta"
+  }, h("div", {
+    className: "lato"
+  }, h("p", {
+    className: "conteggio"
+  }, completati, " su ", FINALI.length, " completati"), famiglie.map(f => h("div", {
+    key: f.nome
+  }, h("div", {
+    className: "famiglia"
+  }, f.nome), h("div", {
+    className: "elenco"
+  }, f.voci.map(v => h("button", {
+    key: v.id,
+    type: "button",
+    className: "voce",
+    "aria-current": v.id === id,
+    onClick: () => setId(v.id)
+  }, h("span", {
+    className: "vt"
+  }, v.nome, fatti[v.id] && h("span", {
+    className: "fatto",
+    "aria-label": "completato"
+  }, " \u2713")), h("span", {
+    className: "vs"
+  }, v.obiettivo === 'vinci' ? 'Da vincere' : 'Da pattare', " con ", nomeColore(new Chess(v.fen).turn())))))))), h("div", {
+    className: "centro"
+  }, h("div", {
+    className: "intestazione"
+  }, h("h2", null, finale.nome), h("p", {
+    className: "giocatori"
+  }, "Giochi con ", h("b", null, lato === 'w' ? 'il bianco' : 'il nero'), " \xA0\xB7\xA0 obiettivo: ", h("b", null, obiettivo), finale.traguardo === 'tenere' && h(React.Fragment, null, " \xA0\xB7\xA0 mosse tenute: ", h("b", null, Math.min(mieMosse, finale.tenere), " su ", finale.tenere))), h("p", {
+    className: "occhiello"
+  }, finale.compito)), h("div", {
+    className: "tavola"
+  }, h("div", null, h(ScacchieraGiocabile, {
+    linea: linea,
+    orientamento: lato,
+    interattiva: tuoTurno
+  }), h("div", {
+    className: "controlli"
+  }, h("button", {
+    type: "button",
+    className: "tasto",
+    onClick: azzera,
+    disabled: !mosse.length
+  }, "Ricomincia"), h("button", {
+    type: "button",
+    className: "tasto",
+    onClick: indietro,
+    disabled: !mosse.length || stato === 'controllo'
+  }, "Indietro di una mossa")), h(SelettoreTema, null), pensa && stato === 'gioco' && h("div", {
+    className: "esito"
+  }, "Muove ", nomeColore(avversario), "\u2026"), stato === 'controllo' && h("div", {
+    className: "esito"
+  }, "Controllo la mossa\u2026"), scacco && !pensa && h("div", {
+    className: "esito"
+  }, scacco), stato === 'errore' && h("div", {
+    className: "avviso errore",
+    role: "alert"
+  }, messaggio, h("div", {
+    className: "riga-tasti"
+  }, h("button", {
+    type: "button",
+    className: "tasto pieno",
+    onClick: ritira
+  }, "Ritira la mossa"), h("button", {
+    type: "button",
+    className: "tasto",
+    onClick: continua
+  }, "Continua lo stesso"))), stato === 'riuscito' && h("div", {
+    className: "avviso riuscito",
+    role: "status"
+  }, h("b", null, "Fatto."), " ", messaggio, h("div", {
+    className: "riga-tasti"
+  }, h("button", {
+    type: "button",
+    className: "tasto pieno",
+    onClick: prossimo
+  }, "Prossimo finale"), h("button", {
+    type: "button",
+    className: "tasto",
+    onClick: azzera
+  }, "Rigioca"))), stato === 'fallito' && h("div", {
+    className: "avviso errore",
+    role: "status"
+  }, messaggio, h("div", {
+    className: "riga-tasti"
+  }, h("button", {
+    type: "button",
+    className: "tasto pieno",
+    onClick: azzera
+  }, "Riprova"))), compromessa && stato === 'gioco' && h("div", {
+    className: "esito"
+  }, "Stai continuando da una posizione compromessa: le mosse non vengono più controllate."), h("div", {
+    className: "nota"
+  }, finale.idea)), h("div", null, h("div", {
+    className: "pannello"
+  }, h("h3", null, "Se ti blocchi"), mostraAiuto ? h("p", null, finale.aiuto) : h("p", null, "Prova prima da solo. Ogni tua mossa viene controllata: se butta via il risultato, lo saprai subito e potrai ritirarla."), h("div", {
+    className: "riga-tasti"
+  }, !mostraAiuto && h("button", {
+    type: "button",
+    className: "tasto",
+    onClick: () => setMostraAiuto(true)
+  }, "Dammi un aiuto"), h("button", {
+    type: "button",
+    className: "tasto",
+    onClick: chiediMossa,
+    disabled: !tuoTurno
+  }, "Mostra la mossa migliore")), consiglio && h("div", {
+    className: "dettaglio"
+  }, "Mossa migliore: ", h("span", {
+    className: "migliore"
+  }, consiglio))), h("div", {
+    className: "pannello"
+  }, h("h3", null, "Mosse"), mosse.length ? h("div", {
+    className: "linea-principale"
+  }, mosse.map((m, i) => {
+    // Se muove il nero per primo, la numerazione parte da "1…".
+    const semi = lato === 'w' ? i : i + 1;
+    return h(React.Fragment, {
+      key: i
+    }, semi % 2 === 0 && h("span", {
+      className: "num"
+    }, semi / 2 + 1, "."), i === 0 && lato === 'b' && h("span", {
+      className: "num"
+    }, "1\u2026"), h("span", {
+      className: 'mossa-finale' + (i % 2 === 0 ? ' mia' : '')
+    }, m));
+  })) : h("p", null, "Ancora nessuna mossa."), h("span", {
+    className: "spia"
+  }, h("i", {
+    className: verifica === true ? '' : verifica === null ? 'attesa' : 'locale'
+  }), verifica === true ? 'mosse controllate con le tablebase di Lichess' : verifica === null ? 'le tablebase si collegano alla prima mossa' : 'tablebase non raggiungibili: gioca il motore, senza controllo delle mosse')))))));
+}
+
+/* ================================================================
    APP
    ================================================================ */
 
@@ -3833,6 +4711,12 @@ function App() {
   }, {
     id: 'aperture',
     nome: 'Aperture'
+  }, {
+    id: 'medio',
+    nome: 'Medio gioco'
+  }, {
+    id: 'finali',
+    nome: 'Finali'
   }];
   return /*#__PURE__*/React.createElement("div", {
     className: "guscio"
@@ -3840,7 +4724,7 @@ function App() {
     className: "testata"
   }, /*#__PURE__*/React.createElement("div", {
     className: "marchio"
-  }, /*#__PURE__*/React.createElement("h1", null, "Sessantaquattro"), /*#__PURE__*/React.createElement("p", null, "Le partite che hanno fatto la storia, una scacchiera per provarci sopra le tue mosse e una libreria di aperture."))), /*#__PURE__*/React.createElement("nav", {
+  }, /*#__PURE__*/React.createElement("h1", null, "Sessantaquattro"), /*#__PURE__*/React.createElement("p", null, "Le partite che hanno fatto la storia, una scacchiera per provarci sopra le tue mosse, una libreria di aperture e gli allenamenti su medio gioco e finali."))), /*#__PURE__*/React.createElement("nav", {
     className: "navigazione"
   }, schede.map(s => /*#__PURE__*/React.createElement("button", {
     key: s.id,
@@ -3852,9 +4736,9 @@ function App() {
     consumaPrimoAvvio: () => {
       primo.current = false;
     }
-  }), sezione === 'analisi' && /*#__PURE__*/React.createElement(SezioneAnalisi, null), sezione === 'aperture' && /*#__PURE__*/React.createElement(SezioneAperture, null), /*#__PURE__*/React.createElement("footer", {
+  }), sezione === 'analisi' && /*#__PURE__*/React.createElement(SezioneAnalisi, null), sezione === 'aperture' && /*#__PURE__*/React.createElement(SezioneAperture, null), sezione === 'medio' && /*#__PURE__*/React.createElement(SezioneMedioGioco, null), sezione === 'finali' && /*#__PURE__*/React.createElement(SezioneFinali, null), /*#__PURE__*/React.createElement("footer", {
     className: "piede"
-  }, "Le mosse delle partite storiche sono state verificate una per una. Le valutazioni arrivano da Stockfish compilato per il browser: girano sul tuo computer, non su un server, e non costano nulla. Se il motore non riesce a scaricarsi, l’analisi passa a un motore interno più semplice e il sito continua a funzionare."));
+  }, "Le mosse delle partite storiche sono state verificate una per una. Le valutazioni arrivano da Stockfish compilato per il browser: girano sul tuo computer, non su un server, e non costano nulla. Se il motore non riesce a scaricarsi, l’analisi passa a un motore interno più semplice e il sito continua a funzionare. Nei finali le mosse vengono controllate con le tablebase di Lichess, che conoscono il risultato esatto di ogni posizione fino a sette pezzi."));
 }
 if (typeof Chess === 'undefined' || typeof ReactDOM === 'undefined') {
   document.getElementById('root').innerHTML = '<div style="padding:60px 20px;max-width:640px;margin:0 auto;font-family:Karla,sans-serif">' + '<h1 style="font-family:Bodoni Moda,serif;font-weight:500">Manca una libreria</h1>' + '<p>Una delle librerie che servono al sito non si è caricata. ' + 'Controlla la connessione e ricarica la pagina.</p></div>';
