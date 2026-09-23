@@ -306,6 +306,27 @@ dl.piani dd{margin:3px 0 0;font-size:15px;color:#DCD0BB}
 .avviso.errore b{color:#E39A86}
 .voce .fatto{color:var(--verde);font-family:var(--testo);font-size:15px}
 .lato > div + div .famiglia{margin-top:22px}
+.commutatore{display:inline-flex;gap:3px;margin-top:26px;padding:3px;border:1px solid var(--linea);border-radius:999px;vertical-align:middle}
+.commutatore button{background:none;border:0;border-radius:999px;padding:6px 18px;color:var(--smorzato);font-size:14px}
+.commutatore button:hover{color:var(--avorio)}
+.commutatore button[aria-pressed="true"]{background:var(--tavolo-alto);color:var(--avorio);font-weight:600;box-shadow:inset 0 0 0 1px var(--ottone-scuro)}
+.spiega-modo{display:inline-block;margin:26px 0 0 14px;font-size:14px;color:var(--smorzato);vertical-align:middle}
+.spiega-modo + .sezione{padding-top:22px}
+.scelte-piano{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.scelta-piano{
+  text-align:left;background:var(--tavolo-alto);border:1px solid var(--linea);border-radius:5px;
+  padding:11px 14px;color:var(--avorio);font-size:15px;line-height:1.45;
+}
+.scelta-piano:hover:not(:disabled){border-color:var(--ottone)}
+.scelta-piano:disabled{cursor:default}
+.scelta-piano.giusta{border-color:var(--verde);background:rgba(122,148,89,.14)}
+.scelta-piano.sbagliata{border-color:var(--rosso);color:var(--smorzato)}
+.pannello p.commento{font-size:14px;margin:0 0 4px 12px;padding-left:12px;border-left:2px solid var(--linea)}
+.pannello p.commento.giusta{border-left-color:var(--verde)}
+.pannello p.commento.sbagliata{border-left-color:var(--rosso)}
+.commento.giusta b{color:#B5CC8E}
+.commento.sbagliata b{color:#E39A86}
+@media(max-width:880px){.spiega-modo{display:block;margin:10px 0 0}}
 .conteggio{font-family:var(--nota);font-size:12px;color:var(--smorzato);margin:0 0 14px}
 .mossa-finale{padding:2px 5px;color:var(--smorzato)}
 .mossa-finale.mia{color:var(--avorio)}
@@ -4174,7 +4195,7 @@ function valutaDopo(fen, mossa, lato) {
     tempoMs: 1600
   }).then(r => punteggioPer(r, lato));
 }
-function SezioneMedioGioco() {
+function SezioneTattica() {
   const [id, setId] = useState(MOMENTI[0].id);
   const [stato, setStato] = useState('attesa'); // attesa | valuto | sbagliato | risolto | svelato
   const [messaggio, setMessaggio] = useState(null);
@@ -4365,6 +4386,367 @@ function SezioneMedioGioco() {
   }), h("div", {
     className: "pannello"
   }, h("h3", null, "Come funziona"), h("p", null, "Muovi un pezzo sulla scacchiera. Se la tua mossa non è quella della partita, Stockfish la confronta con l\u2019originale: se vince lo stesso, vale come soluzione. Senza connessione il confronto non è disponibile e conta solo la mossa giocata.")))))));
+}
+
+/* ================================================================
+   DATI: STRATEGIA
+   Ogni lezione parte da una sequenza di mosse (verificata) che porta
+   a una struttura tipica; tipica è la mossa che avvia il piano.
+   ================================================================ */
+
+const STRATEGIA = [{
+  id: 's-isolato',
+  famiglia: 'Strutture di pedoni',
+  titolo: 'Il pedone isolato',
+  fonte: 'Difesa Caro-Kann, attacco Panov',
+  mosse: 'e4 c6 d4 d5 exd5 cxd5 c4 Nf6 Nc3 e6 Nf3 Be7 cxd5 Nxd5 Bd3 Nc6 O-O O-O',
+  domanda: 'Il pedone bianco in d4 è isolato: nessun pedone vicino può difenderlo. Qual è il piano giusto per il bianco?',
+  scelte: [{
+    testo: 'Cambiare più pezzi possibile e andare verso il finale.',
+    commento: 'È il piano del nero. Con pochi pezzi sulla scacchiera il pedone d4 diventa solo una debolezza da difendere, e la casa d5 davanti a lui un rifugio sicuro per i pezzi avversari.'
+  }, {
+    testo: 'Usare lo spazio e i pezzi attivi per attaccare sul lato di re, tenendo pronta la spinta d4-d5.',
+    giusta: true,
+    commento: 'Il pedone isolato dà spazio, linee aperte per le torri e la casa e5 per il cavallo. Finché ci sono pezzi il bianco attacca, e la spinta d5 serve ad aprire il gioco quando tutto è pronto.'
+  }, {
+    testo: 'Difendere d4 con tutti i pezzi e aspettare.',
+    commento: 'I pezzi legati alla difesa di d4 diventano passivi, mentre il nero punta tutti i suoi proprio lì. Il pedone isolato si gioca in modo attivo, non si difende.'
+  }],
+  idea: 'Il pedone isolato è forza e debolezza insieme. Controlla c5 ed e5 e dà spazio ai pezzi, ma nessun pedone può proteggerlo, e la casa davanti a lui è un avamposto perfetto per l\u2019avversario. La regola pratica: chi ha il pedone isolato cerca l\u2019attacco nel medio gioco, chi gioca contro cerca i cambi e il finale.',
+  bianco: 'Torre in e1, alfiere sulla diagonale b1-h7, cavallo in e5, donna in d3 o e2: tutti puntati sul re nero. Quando i pezzi sono pronti, d4-d5 per aprire.',
+  nero: 'Bloccare la casa d5 con un pezzo, cambiare i pezzi minori, poi attaccare d4 con torri e donna.',
+  tipica: 'Re1',
+  tipicaTesto: 'Re1: la torre va sulla colonna semiaperta e controlla la casa e5, dove arriverà il cavallo.'
+}, {
+  id: 's-carlsbad',
+  famiglia: 'Strutture di pedoni',
+  titolo: 'L\u2019attacco di minoranza',
+  fonte: 'Gambetto di Donna rifiutato, variante di cambio',
+  mosse: 'd4 d5 c4 e6 Nc3 Nf6 cxd5 exd5 Bg5 c6 e3 Be7 Bd3 Nbd7 Qc2 O-O Nf3 Re8 O-O Nf8',
+  domanda: 'Sul lato di donna il bianco ha due pedoni (a e b) contro tre del nero (a, b e c). Qual è il piano del bianco?',
+  scelte: [{
+    testo: 'Spingere a4 e a5 per bloccare i pedoni neri.',
+    commento: 'I pedoni neri non hanno bisogno di muoversi: bloccarli non crea nessuna debolezza. Serve il pedone b, che può attaccare direttamente c6.'
+  }, {
+    testo: 'Aspettare che sia il nero a scoprirsi, senza impegnarsi.',
+    commento: 'Il nero non ha problemi strutturali da solo. Se il bianco non crea una debolezza, la posizione resta pari e il nero ha tutto il tempo di organizzare l\u2019attacco sul lato di re.'
+  }, {
+    testo: 'Spingere b4 e b5 per cambiare il pedone b con il c6 e lasciare al nero un pedone debole.',
+    giusta: true,
+    commento: 'È l\u2019attacco di minoranza: due pedoni contro tre, ma lo scopo non è sfondare, è creare una debolezza. Dopo b5xc6 il nero resta con un pedone c arretrato o un d5 isolato, e il bianco ha tutto il medio gioco per attaccarlo.'
+  }],
+  idea: 'È la struttura Carlsbad, una delle più studiate degli scacchi. Il nero ha un pedone in più sul lato di donna, ma proprio lì attacca il bianco, con meno pedoni. È l\u2019esempio classico di un piano che nasce dalla struttura e non dai pezzi.',
+  bianco: 'Rab1, b4, a4 e b5: cambiare in c6, poi attaccare il pedone rimasto debole con torri e cavalli. La casa c5 diventa un avamposto.',
+  nero: 'Contrattacco sul lato di re con il cavallo in e4 o in g6 e l\u2019alfiere in d6. A volte a5 o b5 per frenare i pedoni bianchi.',
+  tipica: 'Rab1',
+  tipicaTesto: 'Rab1: la torre si mette dietro al pedone b prima di spingerlo.'
+}, {
+  id: 's-sospesi',
+  famiglia: 'Strutture di pedoni',
+  titolo: 'I pedoni sospesi',
+  fonte: 'Fischer \u2013 Spassky, Reykjavík 1972, partita 6',
+  mosse: 'c4 e6 Nf3 d5 d4 Nf6 Nc3 Be7 Bg5 O-O e3 h6 Bh4 b6 cxd5 Nxd5 Bxe7 Qxe7 Nxd5 exd5 Rc1 Be6 Qa4 c5 Qa3 Rc8 Bb5 a6 dxc5 bxc5 O-O Ra7 Be2 Nd7',
+  domanda: 'Il nero ha due pedoni affiancati in c5 e d5, senza pedoni sulle colonne b ed e: sono i pedoni sospesi. Qual è il piano del bianco?',
+  scelte: [{
+    testo: 'Metterli sotto pressione con i pezzi per costringerne uno ad avanzare, così l\u2019altro resta debole.',
+    giusta: true,
+    commento: 'Finché stanno affiancati i pedoni sospesi controllano molte case. Appena uno avanza si aprono buchi: se va c4, il d5 resta isolato e d4 è una casa perfetta; se va d4, il c5 resta arretrato. Fischer fece proprio così: Nd4, cambio in e6 e poi e4.'
+  }, {
+    testo: 'Spingere subito e4 per aprire il centro.',
+    commento: 'Aprire il centro prima di aver sistemato i pezzi regala al nero quello che vuole: i pedoni sospesi diventano forti quando il gioco si apre e i suoi pezzi si attivano.'
+  }, {
+    testo: 'Attaccare il re nero con i pedoni g e h.',
+    commento: 'Il re nero è ben protetto e la partita si decide al centro. Spingere g4 e h4 indebolirebbe soltanto il re bianco.'
+  }],
+  idea: 'I pedoni sospesi sono una coppia centrale senza pedoni vicini. Sono dinamici finché restano affiancati: controllano le case davanti a sé e preparano rotture. Diventano statici e deboli appena vengono bloccati o costretti ad avanzare. In questa partita Fischer li smonta con metodo.',
+  bianco: 'Cavallo in d4 per cambiare l\u2019alfiere e6, pressione sulle colonne c e d, poi e4 per colpire d5.',
+  nero: 'Tenere i pedoni affiancati, attivare i pezzi e trovare il momento per spingere c4 o d4 e creare un pedone passato.',
+  tipica: 'Nd4',
+  tipicaTesto: 'Nd4: il cavallo attacca l\u2019alfiere e6, il pezzo che difende d5.'
+}, {
+  id: 's-catena',
+  famiglia: 'Strutture di pedoni',
+  titolo: 'La catena di pedoni',
+  fonte: 'Difesa Francese, variante di spinta',
+  mosse: 'e4 e6 d4 d5 e5',
+  domanda: 'Il bianco ha appena costruito la catena d4-e5. Dove deve colpire il nero?',
+  scelte: [{
+    testo: 'Alla testa, con f6 subito contro e5.',
+    commento: 'f6 è una rottura giusta, ma più avanti. Giocata adesso, prima di essersi sviluppato, indebolisce e6 e il re nero, e il bianco sostiene e5 senza fatica.'
+  }, {
+    testo: 'Da nessuna parte: svilupparsi con calma e aspettare.',
+    commento: 'Se il nero aspetta, il bianco consolida la catena con c3 e Nf3 e usa lo spazio in più per attaccare sul lato di re. Contro una catena bisogna agire presto.'
+  }, {
+    testo: 'Alla base, con c5 contro d4.',
+    giusta: true,
+    commento: 'Una catena si attacca alla base: se cade d4, il pedone e5 resta senza sostegno. È la regola di Nimzowitsch, e c5 è la mossa più giocata in questa posizione. Più avanti il nero colpirà anche la testa con f6.'
+  }],
+  idea: 'In una catena ogni pedone è difeso da quello dietro, tranne il primo: la base. È lì che si colpisce. La catena d4-e5 dà al bianco spazio sul lato di re e lascia al nero un problema che lo accompagnerà a lungo: l\u2019alfiere c8 chiuso dietro e6 e d5, il classico alfiere cattivo.',
+  bianco: 'Sostenere d4 con c3 e Nf3, usare lo spazio sul lato di re, tenere intatta la catena.',
+  nero: 'c5 e Qb6 contro d4, poi Nc6 e Nge7-f5 per aumentare la pressione, e f6 per colpire anche la testa. L\u2019alfiere c8 si cambia con b6 e Ba6.',
+  tipica: 'c5',
+  tipicaTesto: 'c5: il nero colpisce subito la base della catena.'
+}, {
+  id: 's-avamposto',
+  famiglia: 'Piani tipici',
+  titolo: 'La casa forte in d5',
+  fonte: 'Siciliana Najdorf, variante 6.Be2',
+  mosse: 'e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6 Be2 e5 Nb3 Be7 O-O O-O',
+  domanda: 'Con e5 il nero ha rinunciato per sempre a controllare d5 con un pedone. Qual è il piano del bianco?',
+  scelte: [{
+    testo: 'Spingere a4 e a5 per bloccare il lato di donna.',
+    commento: 'a4 si gioca spesso in queste posizioni, ma come mossa di contorno per frenare b5. Da solo non è un piano: il cuore della posizione è d5.'
+  }, {
+    testo: 'Prendere il controllo di d5 e piazzarci un pezzo che nessun pedone potrà più cacciare.',
+    giusta: true,
+    commento: 'Una casa che nessun pedone avversario può attaccare è un avamposto. Il bianco elimina i difensori di d5, per esempio cambiando il cavallo f6 con Bg5 e Bxf6, e ci mette il cavallo. Un cavallo in d5 vale spesso più di una torre.'
+  }, {
+    testo: 'Attaccare subito il pedone d6 con le torri.',
+    commento: 'd6 è arretrato ma ben difeso da alfiere e donna, e assediarlo costa molti tempi. La casa che conta è d5: da lì il cavallo blocca anche il pedone d6.'
+  }],
+  idea: 'Un avamposto è una casa nel campo avversario che nessun pedone nemico può più attaccare. La spinta e5 della Najdorf dà al nero spazio e sviluppo rapido, ma lascia per sempre la casa d5: tutta la battaglia strategica ruota intorno a chi la controlla.',
+  bianco: 'Bg5 e Bxf6 per eliminare il difensore, Nd5, alfiere in f3 o donna in d3 per controllare d5, a4 per frenare b5.',
+  nero: 'Difendere d5 con Be6 e il cavallo in b6 o c6, e se possibile spingere d5 per liberarsi della debolezza. Contrattacco sul lato di donna con b5.',
+  tipica: 'Bg5',
+  tipicaTesto: 'Bg5: l\u2019alfiere punta il cavallo f6, il principale difensore della casa d5.'
+}, {
+  id: 's-arrocchi',
+  famiglia: 'Piani tipici',
+  titolo: 'Arrocchi opposti',
+  fonte: 'Siciliana Najdorf, attacco inglese',
+  mosse: 'e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6 Be3 e5 Nb3 Be6 f3 Be7 Qd2 O-O',
+  domanda: 'Il nero ha arroccato corto. Dove va il re bianco, e che cosa si fa dopo?',
+  scelte: [{
+    testo: 'Arroccare lungo e lanciare i pedoni g e h contro il re nero.',
+    giusta: true,
+    commento: 'Con i re su lati opposti, spingere i pedoni verso il re avversario non scopre il proprio. Il pedone f3 prepara già g4-g5 per cacciare il cavallo f6: è una corsa, e vince chi apre per primo le linee.'
+  }, {
+    testo: 'Arroccare corto e giocare al centro.',
+    commento: 'Si può, ma è incoerente con f3, Be3 e Qd2, che servono proprio all\u2019attacco sul lato di re. Arroccando corto il bianco non potrebbe più spingere g4 senza scoprire il proprio re.'
+  }, {
+    testo: 'Lasciare il re al centro e spingere subito g4.',
+    commento: 'Con la colonna c aperta, il re al centro diventa un bersaglio. Prima si mette al sicuro il re, poi si attacca.'
+  }],
+  idea: 'Quando i re arroccano su lati opposti la partita cambia natura: i pedoni davanti al proprio re restano fermi, quelli davanti al re avversario diventano arieti. Conta il tempo più del materiale, e spesso un pedone sacrificato per aprire una colonna vale la partita.',
+  bianco: 'O-O-O, g4-g5 per cacciare il cavallo f6, h4-h5, torri sulle colonne g e h.',
+  nero: 'b5-b4 per cacciare il cavallo c3, torri sulla colonna c, e se serve un sacrificio in c3 per aprire il re bianco.',
+  tipica: 'O-O-O',
+  tipicaTesto: 'O-O-O: il re va dalla parte opposta, e i pedoni del lato di re sono liberi di avanzare.'
+}, {
+  id: 's-centrochiuso',
+  famiglia: 'Piani tipici',
+  titolo: 'Il centro chiuso',
+  fonte: 'Difesa Indiana di Re, variante classica',
+  mosse: 'd4 Nf6 c4 g6 Nc3 Bg7 e4 d6 Nf3 O-O Be2 e5 O-O Nc6 d5 Ne7 Ne1 Nd7 Nd3 f5',
+  domanda: 'Il centro è bloccato dai pedoni d5 ed e5, e il nero ha appena spinto f5. Dove deve giocare il bianco?',
+  scelte: [{
+    testo: 'Sul lato di re, fermando l\u2019attacco nero con g4.',
+    commento: 'Giocare dove l\u2019avversario è più forte raramente funziona: g4 apre linee proprio vicino al re bianco. Meglio frenare l\u2019attacco con una mossa di pedone che non indebolisca niente, e giocare dall\u2019altra parte.'
+  }, {
+    testo: 'Sul lato di donna, con c5, dove punta la sua catena di pedoni.',
+    giusta: true,
+    commento: 'Con il centro chiuso si attacca nella direzione in cui puntano i propri pedoni. La catena bianca d5-e4 guarda verso il lato di donna, quella nera e5-d6 verso il lato di re. Il bianco spinge c5 per aprire la colonna c, il nero f4 e g5 contro il re bianco.'
+  }, {
+    testo: 'Scambiare pezzi e aspettare il finale.',
+    commento: 'Nella Indiana di Re il nero non aspetta: se il bianco non crea gioco sul lato di donna, i pedoni neri arrivano davanti al re bianco. Chi resta fermo perde la corsa.'
+  }],
+  idea: 'Con il centro bloccato la partita si sposta sulle ali. La regola di Nimzowitsch dice di attaccare nella direzione in cui punta la propria catena di pedoni. Qui è una corsa: il bianco sfonda sul lato di donna, il nero cerca il matto sul lato di re, e contano i tempi più dei pedoni.',
+  bianco: 'f3 per sostenere e4 e frenare g4, poi Bd2, c5 e l\u2019apertura della colonna c, con il cavallo d3 pronto ad appoggiare la spinta.',
+  nero: 'f4, g5, h5 e g4 contro il re bianco, anche a costo di un pedone per aprire le colonne.',
+  tipica: 'f3',
+  tipicaTesto: 'f3: sostiene e4 e rende più difficile la spinta g4 del nero, prima di passare all\u2019attacco sul lato di donna.'
+}, {
+  id: 's-centropezzi',
+  famiglia: 'Piani tipici',
+  titolo: 'Pezzi contro centro',
+  fonte: 'Difesa Grünfeld, variante di cambio',
+  mosse: 'd4 Nf6 c4 g6 Nc3 d5 cxd5 Nxd5 e4 Nxc3 bxc3 Bg7 Nf3 c5 Rb1 O-O Be2 cxd4 cxd4',
+  domanda: 'Il bianco ha un grande centro di pedoni in d4 ed e4. Qual è il piano del nero?',
+  scelte: [{
+    testo: 'Attaccare il re bianco, che non ha ancora arroccato.',
+    commento: 'Il re bianco arroccherà presto e il nero non ha pezzi pronti per raggiungerlo. Il bersaglio è il centro.'
+  }, {
+    testo: 'Chiudere il gioco con e5 e cercare una posizione bloccata.',
+    commento: 'La Grünfeld vive di pezzi attivi, e il migliore è l\u2019alfiere in g7. Chiudere il centro gli toglie la diagonale e lascia al bianco lo spazio in più senza contropartita.'
+  }, {
+    testo: 'Colpire d4 con i pezzi finché il centro non deve cedere o avanzare.',
+    giusta: true,
+    commento: 'Il centro bianco è un bersaglio: alfiere g7, cavallo in c6, donna e torre sulla colonna d. Qa5+ guadagna un tempo e punta anche il pedone a2. E se si arriva al finale, sul lato di donna il nero ha due pedoni contro uno.'
+  }],
+  idea: 'È la lotta più classica fra due idee: il bianco ha il centro di pedoni, il nero i pezzi pronti a colpirlo. Un centro mobile è forte se può avanzare senza lasciare buchi; se viene attaccato prima di essere sostenuto diventa un peso. In più il nero ha la maggioranza sul lato di donna, che nel finale può dare un pedone passato.',
+  bianco: 'Sostenere il centro con Be3 o Bd2, arroccare, e al momento giusto spingere d5 per guadagnare spazio e chiudere la diagonale dell\u2019alfiere g7.',
+  nero: 'Qa5+, Nc6, Bg4 e Rd8 contro d4. Cambiare i pezzi quando il centro è indebolito e usare la maggioranza a-b nel finale.',
+  tipica: 'Qa5+',
+  tipicaTesto: 'Qa5+: scacco con guadagno di tempo. Se il bianco copre con Bd2, la donna può prendere il pedone a2.'
+}];
+
+/* ================================================================
+   SEZIONE: MEDIO GIOCO, STRATEGIA
+   ================================================================ */
+
+function SezioneStrategia() {
+  const [id, setId] = useState(STRATEGIA[0].id);
+  const [scartate, setScartate] = useState([]);
+  const [giusta, setGiusta] = useState(null);
+  const [fatti, segna] = useFatti();
+  const indice = STRATEGIA.findIndex(s => s.id === id);
+  const lezione = STRATEGIA[indice];
+  const originali = useMemo(() => elencoMosse(lezione.mosse), [lezione]);
+  const base = originali.length;
+  const lato = useMemo(() => costruisci(originali).turn(), [originali]);
+  const linea = useLinea(originali);
+  const [orientamento, setOrientamento] = useState(lato);
+  useEffect(() => {
+    linea.setPly(originali.length);
+    setOrientamento(lato);
+    setScartate([]);
+    setGiusta(null);
+  }, [originali]); // eslint-disable-line
+
+  function rispondi(i) {
+    if (giusta !== null || scartate.indexOf(i) > -1) return;
+    if (lezione.scelte[i].giusta) {
+      setGiusta(i);
+      if (!scartate.length) segna(lezione.id);
+    } else setScartate(scartate.concat([i]));
+  }
+  function tornaAllaPosizione() {
+    linea.ripristina();
+    linea.setPly(base);
+  }
+  function prossima() {
+    const dopo = STRATEGIA.slice(indice + 1).concat(STRATEGIA.slice(0, indice + 1));
+    const nuova = dopo.find(s => !fatti[s.id] && s.id !== id) || dopo[0];
+    setId(nuova.id);
+  }
+  const risolta = giusta !== null;
+  const allaBase = linea.ply === base && linea.divergenza === null;
+  const suTipica = linea.ply === base + 1 && linea.divergenza === base && senzaSegni(linea.mosse[base]) === senzaSegni(lezione.tipica);
+  const esplora = linea.divergenza !== null && !suTipica;
+  let nota;
+  if (suTipica) nota = lezione.tipicaTesto;else if (esplora) nota = 'Stai esplorando per conto tuo. Accendi il motore qui a destra per vedere se la tua idea regge.';else if (linea.ply < base) nota = 'Stai rivedendo le mosse d\u2019apertura che portano a questa struttura. Vai fino in fondo con le frecce.';else nota = risolta ? lezione.idea : 'Guarda la struttura dei pedoni prima dei pezzi: è lei a decidere il piano. Poi scegli la risposta qui a destra.';
+  const famiglie = [];
+  STRATEGIA.forEach(s => {
+    if (!famiglie.length || famiglie[famiglie.length - 1].nome !== s.famiglia) famiglie.push({
+      nome: s.famiglia,
+      voci: []
+    });
+    famiglie[famiglie.length - 1].voci.push(s);
+  });
+  const capite = STRATEGIA.filter(s => fatti[s.id]).length;
+  return h("div", {
+    className: "sezione"
+  }, h("div", {
+    className: "colonna-stretta"
+  }, h("div", {
+    className: "lato"
+  }, h("p", {
+    className: "conteggio"
+  }, capite, " su ", STRATEGIA.length, " al primo tentativo"), famiglie.map(f => h("div", {
+    key: f.nome
+  }, h("div", {
+    className: "famiglia"
+  }, f.nome), h("div", {
+    className: "elenco"
+  }, f.voci.map(s => h("button", {
+    key: s.id,
+    type: "button",
+    className: "voce",
+    "aria-current": s.id === id,
+    onClick: () => setId(s.id)
+  }, h("span", {
+    className: "vt"
+  }, s.titolo, fatti[s.id] && h("span", {
+    className: "fatto",
+    "aria-label": "capita al primo tentativo"
+  }, " \u2713")), h("span", {
+    className: "vs"
+  }, s.fonte))))))), h("div", {
+    className: "centro"
+  }, h("div", {
+    className: "intestazione"
+  }, h("h2", null, lezione.titolo), h("p", {
+    className: "giocatori"
+  }, lezione.fonte), h("p", {
+    className: "occhiello"
+  }, "Muove ", nomeColore(lato), ". Guarda i pedoni, poi scegli il piano.")), h("div", {
+    className: "tavola"
+  }, h("div", null, h(ScacchieraGiocabile, {
+    linea: linea,
+    orientamento: orientamento,
+    interattiva: true
+  }), h(Navigazione, {
+    linea: linea,
+    onGira: () => setOrientamento(orientamento === 'w' ? 'b' : 'w'),
+    extra: !allaBase && h("button", {
+      type: "button",
+      className: "tasto",
+      onClick: tornaAllaPosizione
+    }, "Torna alla posizione")
+  }), h(SelettoreTema, null), risolta && h("div", {
+    className: "riga-tasti"
+  }, h("button", {
+    type: "button",
+    className: "tasto",
+    onClick: () => linea.gioca(lezione.tipica),
+    disabled: !allaBase
+  }, "Gioca la mossa tipica: ", lezione.tipica), h("button", {
+    type: "button",
+    className: "tasto pieno",
+    onClick: prossima
+  }, "Prossima lezione")), h("div", {
+    className: "nota"
+  }, nota)), h("div", null, h("div", {
+    className: "pannello"
+  }, h("h3", null, "Scegli il piano"), h("p", null, lezione.domanda), h("div", {
+    className: "scelte-piano"
+  }, lezione.scelte.map((s, i) => {
+    const sbagliata = scartate.indexOf(i) > -1;
+    const questa = giusta === i;
+    return h(React.Fragment, {
+      key: i
+    }, h("button", {
+      type: "button",
+      className: 'scelta-piano' + (questa ? ' giusta' : sbagliata ? ' sbagliata' : ''),
+      onClick: () => rispondi(i),
+      disabled: risolta || sbagliata,
+      "aria-pressed": questa || sbagliata
+    }, s.testo), (questa || sbagliata) && h("p", {
+      className: 'commento' + (questa ? ' giusta' : ' sbagliata'),
+      role: "status"
+    }, h("b", null, questa ? 'Giusto. ' : 'No. '), s.commento));
+  }))), risolta && h("div", {
+    className: "pannello"
+  }, h("h3", null, "I due piani"), h("dl", {
+    className: "piani"
+  }, h("dt", null, "Piano del bianco"), h("dd", null, lezione.bianco), h("dt", null, "Piano del nero"), h("dd", null, lezione.nero))), h(PannelloMotore, {
+    fen: linea.posizione.fen(),
+    automatico: false,
+    onGioca: san => linea.gioca(san)
+  }))))));
+}
+
+/* ================================================================
+   SEZIONE: MEDIO GIOCO (tattica e strategia)
+   ================================================================ */
+
+function SezioneMedioGioco() {
+  const [modo, setModo] = useState('tattica');
+  return h("div", null, h("div", {
+    className: "commutatore",
+    role: "group",
+    "aria-label": "Tipo di allenamento"
+  }, h("button", {
+    type: "button",
+    "aria-pressed": modo === 'tattica',
+    onClick: () => setModo('tattica')
+  }, "Tattica"), h("button", {
+    type: "button",
+    "aria-pressed": modo === 'strategia',
+    onClick: () => setModo('strategia')
+  }, "Strategia")), h("span", {
+    className: "spiega-modo"
+  }, modo === 'tattica' ? 'Trova il colpo giocato nelle grandi partite.' : 'Riconosci la struttura e scegli il piano giusto.'), modo === 'tattica' ? h(SezioneTattica, null) : h(SezioneStrategia, null));
 }
 
 /* ================================================================
